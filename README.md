@@ -102,3 +102,4 @@ Remarks
     ```  
 - The "xymonlogsend" line allow to have a test/column named "xymonlog" for you windows machine that contains the "c:\program files\xymon\xymonclient.log" file
 - To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
+- Optionnally, as I dont want to have alarms for this test on my main page so I disable the alarm propagation
