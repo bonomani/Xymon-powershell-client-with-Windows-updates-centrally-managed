@@ -46,7 +46,7 @@ Remarks
 
 - Change the server's name with yours!  
 - I use only fqdn: my client also! 
-- We need 2 extra folders: Create them!
+- We need 2 extra folders:
 
     ```
     mkdir "c:\Program Files\xymon\ext"
