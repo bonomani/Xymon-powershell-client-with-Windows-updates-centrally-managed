@@ -95,7 +95,7 @@ Remarks
 - You can test your script with: powershell.exe -executionpolicy remotesigned -file "c:\program files\xymon\ext\updates.ps1"
 - Check if your MD5 is correct: md5sum ./updates.ps1 and adjust it in your etc/client-local.cfg!
 - Check the log file on your windows server "c:\program files\xymon\xymonclient.log", you should see that 
-     - the MD5 hash did changed (if you change it) in your etc/client-local.cfg (dont forget to restart xymon) and the updates.ps1 is downloaded 
+     - if the MD5 hash just changed in your etc/client-local.cfg (dont forget to restart xymon) the updates.ps1 script should be downloaded 
      - there are no special chars (UTF 8 Problem: there is an option to use UTF8, but it seems safer to stay in ASCII)
 - Check that your Xymon client-local.cfg are still in ansi(ascii) and not in UTF8: 
     ```
