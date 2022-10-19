@@ -5,7 +5,7 @@ This is a working procedure to have Xymon monitoring Windows Update
 
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
-- Installed following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw
+- Installed by following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw
     - The powershell agent installation steps: 
         - Review xymonclient_config.xml and at the least, set the Xymon server address.
     -	Copy the following files to a directory on the target server (e.g. c:\program files\xymon: I use exactly this!) 
@@ -48,4 +48,15 @@ mkdir "c:\Program Files\xymon\ext"
 mkdir "c:\Program Files\xymon\tmp"
 ```
 
-## Prerequisit 2: The xymon config
+- If you download the files through internet, they can be blocked (I did not so you should find yourself how to unblock them)
+
+## Prerequisit 2: My xymon config
+I would like to have a "central mode" to have 
+- 1. A repository for the external script
+- 2. A centrally manage client
+
+The powershell client announce itself as 
+- Class : powershell
+- OS    : powershell
+
+So you will have to create 
