@@ -88,11 +88,10 @@ Remarks
 - Check if your MD5 is correct: md5sum ./updates.ps1 and adjust it in your etc/client-local.cfg!
 - Check the log file on your windows server "c:\program files\xymon\xymonclient.log", you should see that 
      - the MD5 hash did changed (if you change it) in your etc/client-local.cfg (dont forget to restart xymon) and the updates.ps1 is downloaded 
-     - there are noe special char (UTF 8 Problem: there is an option to use UTF8, but seem safer to stay in ASCII)
-- Check that you xymon client-local.cfg are still in ansi(ascii) and not in UTF8: 
+     - there are no special char (UTF 8 Problem: there is an option to use UTF8, but it seems safer to stay in ASCII)
+- Check that your xymon client-local.cfg are still in ansi(ascii) and not in UTF8: 
     ```
     file -bi ./client-local.cfg
     ```  
-- The "xymonlogsend" line allow to have a test/column named "xymonlog" for you server that contains the "c:\program files\xymon\xymonclient.log" file
+- The "xymonlogsend" line allow to have a test/column named "xymonlog" for you windows machine that contains the "c:\program files\xymon\xymonclient.log" file
 - To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
-- 
