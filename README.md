@@ -8,14 +8,11 @@ This is a working procedure to have Xymon monitoring with Windows Update
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
 - Installed by following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw
-    - The powershell agent installation steps: 
-    ```
-    Open cmd prompt as admin 
-    ```
-    ```
-    mkdir "c:\Program Files\xymon"
-    ```
-   
+    - The powershell agent installation steps: Open cmd prompt as admin 
+        ```
+        mkdir "c:\Program Files\xymon"
+        ```
+        
     - Review xymonclient_config.xml and at the least, set the Xymon server address.
     - Copy the following files to a directory on the target server (e.g. c:\program files\xymon: I use exactly/only this!) 
             - xymonclient.ps1
