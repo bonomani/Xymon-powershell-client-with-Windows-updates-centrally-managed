@@ -88,7 +88,7 @@ Configuration:
 
 Remarks
 - In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
-- In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (Does not exist at all... so you will have to create it! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
+- In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (The [powershell] section does not exist at all... so you will have to create it first! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
 - The "external" line 
     - uses the native bb protocol, but you should also be able to use http (will the updates.ps1 be blocked as it is downloaded?)
     - is not optimized by now: could be slowscan (and async?)
