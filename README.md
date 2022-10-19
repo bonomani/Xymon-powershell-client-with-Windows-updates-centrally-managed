@@ -52,14 +52,12 @@ Remarks
 - If you need to edit them, use notepad as admin and use "save as"
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8: notepad detect if there are UTF8 char automatically: so look the propose encoding type)
 
-## The Xymon config
-I would like to have a "central mode" 
-- A centrally manage client
-- A repository for all the external scripts
+## The Xymon config in Central Mode
+This explain how to have
+- A centrally managed powershell client
+- A centrally managed repository for all the external scripts
 
-So let do that!
-
-The powershell client announce itself as 
+The powershell client announce itself by default as 
 - Class : powershell
 - OS    : powershell
 
