@@ -1,4 +1,4 @@
-# Xymon-Windows-Updates-Powershell-External-Script
+# Xymon powershell client with Windows updates centrally managed 
 
 This is a working procedure to have Xymon monitoring with Windows Update (with the installation of the "powershell" client)
 (Tested so far with Windows 2016)
