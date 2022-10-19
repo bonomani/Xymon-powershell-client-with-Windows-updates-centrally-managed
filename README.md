@@ -93,3 +93,6 @@ Remarks
     ```
     file -bi ./client-local.cfg
     ```  
+- The "xymonlogsend" line allow to have a test/column named "xymonlog" for you server that contains the "c:\program files\xymon\xymonclient.log" file
+- To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
+- 
