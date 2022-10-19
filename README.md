@@ -16,8 +16,8 @@ This is a working procedure to have Xymon monitoring with Windows Update
     mkdir "c:\Program Files\xymon"
     ```
    
-        - Review xymonclient_config.xml and at the least, set the Xymon server address.
-    -	Copy the following files to a directory on the target server (e.g. c:\program files\xymon: I use exactly/only this!) 
+    - Review xymonclient_config.xml and at the least, set the Xymon server address.
+    - Copy the following files to a directory on the target server (e.g. c:\program files\xymon: I use exactly/only this!) 
             - xymonclient.ps1
         - nssm.exe
         - xymonclient_config.xml
