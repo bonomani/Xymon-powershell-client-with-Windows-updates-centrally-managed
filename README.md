@@ -52,7 +52,7 @@ Remarks
 - If you need to edit them use notepad as admin and use "save as"
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8)
 
-## Prerequisit 2: My xymon config
+## The xymon config
 I would like to have a "central mode" to have 
 - A repository for the external script
 - A centrally manage client
