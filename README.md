@@ -27,15 +27,15 @@ Remarks
 
     ```
     <XymonSettings>
-	    <servers>xymon.domain.tld</servers>
+            <servers>xymon.domain.tld</servers>
             <clientlogfile>c:\program files\xymon\xymonclient.log</clientlogfile>
-	    <clientconfigfile>c:\program files\xymon\clientconfig.cfg</clientconfigfile>
-	    <clientfqdn>1</clientfqdn>
-	    <clientlower>0</clientlower>
-	    <wanteddisks>2 3 4</wanteddisks>
-	    <clientremotecfgexec>1</clientremotecfgexec>
-	    <externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
-	    <externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
+            <clientconfigfile>c:\program files\xymon\clientconfig.cfg</clientconfigfile>
+            <clientfqdn>1</clientfqdn>
+            <clientlower>0</clientlower>
+            <wanteddisks>2 3 4</wanteddisks>
+            <clientremotecfgexec>1</clientremotecfgexec>
+            <externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
+            <externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
     </XymonSettings>
     ```
 
