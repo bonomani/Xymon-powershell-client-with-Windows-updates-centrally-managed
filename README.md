@@ -78,7 +78,7 @@ Configuration:
 - In etc/client-local.cfg
     ```
     [powershell]
-    external:everyscan:sync:bb://updates.ps1|MD5|ccb83cc254fbc3428932a562864ab741|powershell.exe|-executionpolicy remotesigned -file "{script}"
+    external:everyscan:sync:bb://updates.ps1|MD5|016e2f3725f2571698a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
 - restart xymon
