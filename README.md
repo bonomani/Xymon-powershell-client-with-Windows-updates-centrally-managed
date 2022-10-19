@@ -53,16 +53,18 @@ Remarks
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8: notepad detect if there are UTF8 char automatically: so look the propose encoding type)
 
 ## The Xymon config
-I would like to have a "central mode" to have 
-- A repository for the external script
+I would like to have a "central mode" 
 - A centrally manage client
+- A repository for all the external scripts
+
+So let do that!
 
 The powershell client announce itself as 
 - Class : powershell
 - OS    : powershell
 
 Configuration:
-- In etc/analysis.cfg, at the end, but before the DEFAULT section (I did check that the LOAD section is working)
+- In etc/analysis.cfg, at the end, but before the DEFAULT section 
     ```
     CLASS=powershell
             LOAD 50 80
@@ -76,10 +78,12 @@ Configuration:
     external:everyscan:sync:bb://updates.ps1|MD5|ccb83cc254fbc3428932a562864ab741|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
-- In "download", put the updates.ps1 script
 - restart xymon
+- In "download", put the updates.ps1 script
+- in etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
 
 Remarks
+- In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
 - In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (Does not exist at all... so you will have to create it! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
 - The "external" line 
     - uses the native bb protocol, but you should also be able to use http (will the updates.ps1 be blocked as it is downloaded?)
