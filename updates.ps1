@@ -6,36 +6,36 @@
 
 function Test-PendingReboot
 {
- if (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -EA SilentlyContinue) { return $true }
- if (Get-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -EA SilentlyContinue) { return $true }
- try { 
-   $util = [wmiclass]"\\.\root\ccm\clientsdk:CCM_ClientUtilities"
-   $status = $util.DetermineIfRebootPending()
-   if(($status -ne $null) -and $status.RebootPending){
-     return $true
-   }
- }catch{}
+  if (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -EA SilentlyContinue) { return $true }
+  if (Get-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -EA SilentlyContinue) { return $true }
+  try {
+    $util = [wmiclass]"\\.\root\ccm\clientsdk:CCM_ClientUtilities"
+    $status = $util.DetermineIfRebootPending()
+    if (($status -ne $null) -and $status.RebootPending) {
+      return $true
+    }
+  } catch {}
 
- return $false
+  return $false
 }
 
 ## This section controls the reporting colors.
 ## I've forced them all green so I can use the script for information instead of alerts.
 function Set-Colour
 {
-    param( [string]$currentColour, [string]$newColour )
-    If ($currentColour -eq "red") {
-		"red"
-		# "green"
-    } ElseIf ($newColour -eq "red") {
-         "red"
-	#	"green"
-    } ElseIf ($newColour -eq "yellow") {
-         "yellow"
-	#	"green"
-    } Else {
-        "green"
-    }
+  param([string]$currentColour,[string]$newColour)
+  if ($currentColour -eq "red") {
+    "red"
+    # "green"
+  } elseif ($newColour -eq "red") {
+    "red"
+    # "green"
+  } elseif ($newColour -eq "yellow") {
+    "yellow"
+    # "green"
+  } else {
+    "green"
+  }
 }
 
 function Write-DebugLog {
@@ -43,135 +43,135 @@ function Write-DebugLog {
     [string]$message,
     [string]$filepath = 'c:\Program Files\xymon\ext\updates.log'
   )
-  $message | Out-File $filepath -append
+  $message | Out-File $filepath -Append
 }
 
 $LogTime = Get-Date -Format "MM-dd-yyyy_hh-mm-ss"
 Write-DebugLog $LogTime
 $outputFile = "C:\Program Files\xymon\tmp\updates"
 $outputText = ""
-$dateLimit = (get-date).adddays(-14)
+$dateLimit = (Get-Date).adddays(-14)
 $Computername = $env:COMPUTERNAME
 Write-DebugLog "Creating update session"
-$updatesession =  [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
+$updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
 Write-DebugLog "Creating update searcher"
 $UpdateSearcher = $updatesession.CreateUpdateSearcher()
 Write-DebugLog "Searching for updates"
 $RebootRequired = Test-PendingReboot
 
-If (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
-	$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' #microsoft update online
-	$UpdateSearcher.SearchScope =  1 # MachineOnly
-	$UpdateSearcher.ServerSelection = 3 # Windows Update (2) Third Party (3)
+if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
+  $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' #microsoft update online
+  $UpdateSearcher.SearchScope = 1 # MachineOnly
+  $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Third Party (3)
 }
-$searchresult = $updatesearcher.Search("IsInstalled=0")  # 0 = NotInstalled | 1 = Installed
+$searchresult = $updatesearcher.Search("IsInstalled=0") # 0 = NotInstalled | 1 = Installed
 $count = 0
-$Updates = If ($searchresult.Updates.Count  -gt 0) {
-	#Updates are  waiting to be installed
-	#Cache the  count to make the For loop run faster
-	$count  = $searchresult.Updates.Count
-    Write-DebugLog "$count Updates have been found"
-	Write-Verbose  "Found $Count update\s!"
-    Write-DebugLog "Looping through updates to retrieve information"
-	For ($i=0; $i -lt $Count; $i++) {
-		#Create  object holding update
-		$Update  = $searchresult.Updates.Item($i)
-		[pscustomobject]@{
-			Title =  $Update.Title
-			KB =  $($Update.KBArticleIDs)
-			SecurityBulletin = $($Update.SecurityBulletinIDs)
-			MsrcSeverity = $Update.MsrcSeverity
-			IsDownloaded = $Update.IsDownloaded
-			Url =  $Update.MoreInfoUrls
-            LastDeploymentChangeTime = $Update.LastDeploymentChangeTime
-			Categories =  ($Update.Categories  | Select-Object  -ExpandProperty Name)
-			BundledUpdates = @($Update.BundledUpdates)|ForEach{
-				[pscustomobject]@{
-					Title = $_.Title
-					DownloadUrl = @($_.DownloadContents).DownloadUrl
-				}
-			}
-		}
-	}
+$Updates = if ($searchresult.Updates.Count -gt 0) {
+  #Updates are  waiting to be installed
+  #Cache the  count to make the For loop run faster
+  $count = $searchresult.Updates.Count
+  Write-DebugLog "$count Updates have been found"
+  Write-Verbose "Found $Count update\s!"
+  Write-DebugLog "Looping through updates to retrieve information"
+  for ($i = 0; $i -lt $Count; $i++) {
+    #Create  object holding update
+    $Update = $searchresult.Updates.Item($i)
+    [pscustomobject]@{
+      Title = $Update.Title
+      KB = $($Update.KBArticleIDs)
+      SecurityBulletin = $($Update.SecurityBulletinIDs)
+      MsrcSeverity = $Update.MsrcSeverity
+      IsDownloaded = $Update.IsDownloaded
+      Url = $Update.MoreInfoUrls
+      LastDeploymentChangeTime = $Update.LastDeploymentChangeTime
+      Categories = ($Update.Categories | Select-Object -ExpandProperty Name)
+      BundledUpdates = @($Update.BundledUpdates) | ForEach-Object {
+        [pscustomobject]@{
+          Title = $_.Title
+          DownloadUrl = @($_.DownloadContents).DownloadUrl
+        }
+      }
+    }
+  }
 }
 
-If ($count  -gt 0) {
-    Write-DebugLog "Start assembling output"
-	$criticalCount = 0
-	$criticalOutput = ""
-	$moderateCount = 0
-	$moderateOutput = ""
-	$otherCount = 0
-	$otherOutput = ""
-	$colour = "green"
-	ForEach ($wUpdate in $Updates) {
-		$severity = $wUpdate.MsrcSeverity
-		$bulletin = $wUpdate.SecurityBulletin
-        $patchDate = $wUpdate.LastDeploymentChangeTime
-        $patchAge = (New-TimeSpan -start $patchDate -End (get-date)).Days
-		$kb = $wUpdate.KB
-		$downloaded = $wUpdate.IsDownloaded
-		$title = $wUpdate.Title
-		If ($Severity -eq "Critical") {
-            If ($patchDate -lt $dateLimit) {
-                $colour = Set-Colour $colour "red"
-            } else {
-                $colour = Set-Colour $colour "yellow"
-            }
-			$criticalCount = $criticalCount + 1
-			$criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
-		} ElseIf ($Severity -eq "Moderate" -or $Severity -eq "Important") {
-			$colour = Set-Colour $colour "yellow"
-			$moderateCount = $moderateCount + 1
-			$moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
-		} Else {
-			$otherCount = $otherCount + 1
-			$otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
-		}
-	}
-	If ($criticalCount -eq 0) {
-        Write-DebugLog "No critical updates"
-	}
+if ($count -gt 0) {
+  Write-DebugLog "Start assembling output"
+  $criticalCount = 0
+  $criticalOutput = ""
+  $moderateCount = 0
+  $moderateOutput = ""
+  $otherCount = 0
+  $otherOutput = ""
+  $colour = "green"
+  foreach ($wUpdate in $Updates) {
+    $severity = $wUpdate.MsrcSeverity
+    $bulletin = $wUpdate.SecurityBulletin
+    $patchDate = $wUpdate.LastDeploymentChangeTime
+    $patchAge = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
+    $kb = $wUpdate.KB
+    $downloaded = $wUpdate.IsDownloaded
+    $title = $wUpdate.Title
+    if ($Severity -eq "Critical") {
+      if ($patchDate -lt $dateLimit) {
+        $colour = Set-Colour $colour "red"
+      } else {
+        $colour = Set-Colour $colour "yellow"
+      }
+      $criticalCount = $criticalCount + 1
+      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
+    } elseif ($Severity -eq "Moderate" -or $Severity -eq "Important") {
+      $colour = Set-Colour $colour "yellow"
+      $moderateCount = $moderateCount + 1
+      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
+    } else {
+      $otherCount = $otherCount + 1
+      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$Title</td></tr>`r`n"
+    }
+  }
+  if ($criticalCount -eq 0) {
+    Write-DebugLog "No critical updates"
+  }
 } else {
-    Write-DebugLog "No updates found"
-	$colour = "green"
+  Write-DebugLog "No updates found"
+  $colour = "green"
 }
 
-If ($RebootRequired) {
-	$colour = Set-Colour $colour "yellow"
+if ($RebootRequired) {
+  $colour = Set-Colour $colour "yellow"
 }
 
 Write-DebugLog "Get hostname"
-$fqdnHostname =  [System.Net.DNS]::GetHostByName('').HostName.ToLower()
+$fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
 Write-DebugLog "Get current date"
-$dateString = get-date -Format "MM-dd-yyyy HH:mm:ss"
+$dateString = Get-Date -Format "MM-dd-yyyy HH:mm:ss"
 $outputText = $outputText + "$colour+12h $dateString [$fqdnHostname]`r`n"
 $outputText = $outputText + "<h2>Windows Update Check</h2>`r`n"
 $outputText = $outputText + "&$colour Windows Updates available: $count`r`n"
-If ($criticalCount -gt 0) {
-    Write-DebugLog "Red colour due to critical updates"
-	$outputText = $outputText + "&red Critical Windows Updates available: $criticalCount`r`n"
+if ($criticalCount -gt 0) {
+  Write-DebugLog "Red colour due to critical updates"
+  $outputText = $outputText + "&red Critical Windows Updates available: $criticalCount`r`n"
 }
 if ($moderateCount -gt 0) {
-    Write-DebugLog "Yellow colour due to moderate updates"
-	$outputText = $outputText + "&yellow Moderate Windows Updates available: $moderateCount`r`n"
+  Write-DebugLog "Yellow colour due to moderate updates"
+  $outputText = $outputText + "&yellow Moderate Windows Updates available: $moderateCount`r`n"
 }
 if ($otherCount -gt 0) {
-    Write-DebugLog "Green colour due to other updates"
-	$outputText = $outputText + "&green Other Windows Updates available: $otherCount`r`n"
+  Write-DebugLog "Green colour due to other updates"
+  $outputText = $outputText + "&green Other Windows Updates available: $otherCount`r`n"
 }
-If ($RebootRequired) {
-	$outputText = $outputText + "&yellow Reboot required after previous installs`r`n"
+if ($RebootRequired) {
+  $outputText = $outputText + "&yellow Reboot required after previous installs`r`n"
 }
 if ($count -gt 0) {
-    Write-DebugLog "Updates have been detected so output contains updates listing"
-	$outputText = $outputText + "<p>&nbsp;</p>`r`n"
-	$outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
-	$outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Downloaded</th><th>Title</th></tr>`r`n"
-	$outputText = $outputText + $criticalOutput
-	$outputText = $outputText + $moderateOutput
-	$outputText = $outputText + $otherOutput
-	$outputText = $outputText + "</table>`r`n"
+  Write-DebugLog "Updates have been detected so output contains updates listing"
+  $outputText = $outputText + "<p>&nbsp;</p>`r`n"
+  $outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
+  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Downloaded</th><th>Title</th></tr>`r`n"
+  $outputText = $outputText + $criticalOutput
+  $outputText = $outputText + $moderateOutput
+  $outputText = $outputText + $otherOutput
+  $outputText = $outputText + "</table>`r`n"
 }
 
 Write-DebugLog "Save contents into tmp file"
