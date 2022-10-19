@@ -49,11 +49,13 @@ Remarks
     ```
 
 - If you download the files through internet, they can be blocked (I did not so you should find yourself how to unblock them)
+- If you need to edit them use notepad as admin and use "save as"
+- Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8)
 
 ## Prerequisit 2: My xymon config
 I would like to have a "central mode" to have 
-- 1. A repository for the external script
-- 2. A centrally manage client
+- A repository for the external script
+- A centrally manage client
 
 The powershell client announce itself as 
 - Class : powershell
