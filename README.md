@@ -14,9 +14,9 @@ This is a working procedure to have Xymon monitoring Windows Update
         mkdir "c:\Program Files\xymon"
         ```
 
-        - Xymonclient.ps1
-        - Nssm.exe
-        - Xymonclient_config.xml
+        - xymonclient.ps1
+        - nssm.exe
+        - xymonclient_config.xml
     -	Run the following command to install the service from a PowerShell prompt (may need to be an administrative prompt):
         - .\xymonclient.ps1 install
     -	Either review and start the service in Windows services control panel or run:
