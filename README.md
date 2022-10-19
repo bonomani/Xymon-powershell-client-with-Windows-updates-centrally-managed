@@ -25,28 +25,28 @@ This is a working procedure to have Xymon monitoring Windows Update
 Remarks
 - my Xymonclient_config.xml:
 
-```
-<XymonSettings>
-	<servers>xymon.domain.tld</servers>
-	<clientlogfile>c:\program files\xymon\xymonclient.log</clientlogfile>
-	<clientconfigfile>c:\program files\xymon\clientconfig.cfg</clientconfigfile>
-	<clientfqdn>1</clientfqdn>
-	<clientlower>0</clientlower>
-	<wanteddisks>2 3 4</wanteddisks>
-	<clientremotecfgexec>1</clientremotecfgexec>
-	<externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
-	<externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
-</XymonSettings>
-```
+    ```
+    <XymonSettings>
+	    <servers>xymon.domain.tld</servers>
+            <clientlogfile>c:\program files\xymon\xymonclient.log</clientlogfile>
+	    <clientconfigfile>c:\program files\xymon\clientconfig.cfg</clientconfigfile>
+	    <clientfqdn>1</clientfqdn>
+	    <clientlower>0</clientlower>
+	    <wanteddisks>2 3 4</wanteddisks>
+	    <clientremotecfgexec>1</clientremotecfgexec>
+	    <externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
+	    <externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
+    </XymonSettings>
+    ```
 
 - Change the server name with yours!  
 - I use only fqdn: my client also! 
 - We need 2 extra folders: Create them!
 
- ```
-mkdir "c:\Program Files\xymon\ext"
-mkdir "c:\Program Files\xymon\tmp"
-```
+    ```
+    mkdir "c:\Program Files\xymon\ext"
+    mkdir "c:\Program Files\xymon\tmp"
+    ```
 
 - If you download the files through internet, they can be blocked (I did not so you should find yourself how to unblock them)
 
