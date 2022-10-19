@@ -1,6 +1,6 @@
 # Xymon-Windows-Updates-Powershell-External-Script
 
-This is a working procedure to have Xymon monitoring Windows Update
+This is a working procedure to have Xymon monitoring with Windows Update (with the installation of the "powerhsell" client)
 (Tested so far with Windows 2016)
 
 ## Prerequisit 1: The powershell client (agent)
