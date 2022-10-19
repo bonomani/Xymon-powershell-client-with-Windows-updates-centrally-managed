@@ -7,17 +7,24 @@ This is a working procedure to have Xymon monitoring Windows Update
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
 - Installed following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw
     - The powershell agent installation steps: 
-        -	Review xymonclient_config.xml and at the least, set the Xymon server address.
+        - Review xymonclient_config.xml and at the least, set the Xymon server address.
     -	Copy the following files to a directory on the target server (e.g. c:\program files\xymon: I use exactly this!) 
-        -	Xymonclient.ps1
-        -	Nssm.exe
-        -	Xymonclient_config.xml
+
+        ```
+        mkdir "c:\Program Files\xymon"
+        ```
+
+        - Xymonclient.ps1
+        - Nssm.exe
+        - Xymonclient_config.xml
     -	Run the following command to install the service from a PowerShell prompt (may need to be an administrative prompt):
-        -	.\xymonclient.ps1 install
+        - .\xymonclient.ps1 install
     -	Either review and start the service in Windows services control panel or run:
         - .\xymonclient.ps1 start
 
-my Xymonclient_config.xml:
+Remarks
+- my Xymonclient_config.xml:
+
 ```
 <XymonSettings>
 	<servers>xymon.domain.tld</servers>
@@ -31,8 +38,14 @@ my Xymonclient_config.xml:
 	<externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
 </XymonSettings>
 ```
-Remarks
+
 - Change the server name with yours!  
 - I use only fqdn: my client also! 
-- We need 2 extra folder c:\program files\xymon\ext and c:\program files\xymon\tmp: Create them!
+- We need 2 extra folders: Create them!
 
+ ```
+mkdir "c:\Program Files\xymon\ext"
+mkdir "c:\Program Files\xymon\tmp"
+```
+
+## Prerequisit 2: The xymon config
