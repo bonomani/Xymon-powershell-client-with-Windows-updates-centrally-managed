@@ -30,6 +30,7 @@ This is a working procedure to have Xymon monitoring with Windows Update
         ```
 
 Remarks
+- You have now a service called XymonPSClient: You can restart it to trigger the script and see the result in Xymon
 - my Xymonclient_config.xml:
 
     ```
