@@ -103,5 +103,5 @@ Remarks
     ```  
 - The "xymonlogsend" line allow to have a test/column named "xymonlog" for you windows machine that contains the "c:\program files\xymon\xymonclient.log" file
 - To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
-- The updates.ps1 does only create a critical alarm after 14 days (could be written somewhere)
+- The updates.ps1 does a critical alarm only after 14 days (could be written somewhere)
 - Optionnally, as I do not want to have alarms for this test on my main page so I disable the alarm propagation (nopropyellow)
