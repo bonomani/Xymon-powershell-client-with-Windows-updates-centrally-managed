@@ -62,7 +62,7 @@ The powershell client announce itself as
 - OS    : powershell
 
 Configuration:
-- In etc/analysis.cfg, bat the end, but berfore the DEFAULT section (I did chekc that the LOAD section is working)
+- In etc/analysis.cfg, at the end, but before the DEFAULT section (I did check that the LOAD section is working)
     ```
     CLASS=powershell
             LOAD 50 80
