@@ -60,7 +60,7 @@ Remarks
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8: notepad detect if there are UTF8 char automatically: so look the propose encoding type)
 
 ## The Xymon config in Central Mode
-This explain how to have
+This explains how to have
 - A centrally managed powershell client
 - A centrally managed repository for all the external scripts
 
