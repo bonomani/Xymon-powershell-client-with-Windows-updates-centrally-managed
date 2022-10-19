@@ -19,9 +19,12 @@ This is a working procedure to have Xymon monitoring with Windows Update
         - nssm.exe
         - xymonclient_config.xml
     -	Run the following command to install the service from a PowerShell prompt (may need to be an administrative prompt):
-        - .\xymonclient.ps1 install
-    -	Either review and start the service in Windows services control panel or run:
-        - .\xymonclient.ps1 start
+        ```
+        cd "c:\Program Files\xymon\"
+        powershell
+        .\xymonclient.ps1 install
+        .\xymonclient.ps1 start
+        ```
 
 Remarks
 - my Xymonclient_config.xml:
@@ -79,7 +82,8 @@ Configuration:
     ```
 - restart xymon
 - In "download", put the updates.ps1 script
-- in etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
+- In etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
+- (optional) In etc/hosts: 10.0.0.1              myserver.domain.tld                 # nopropyellow:updates nopropred:updates
 
 Remarks
 - In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
