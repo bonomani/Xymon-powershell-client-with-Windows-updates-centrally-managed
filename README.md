@@ -53,7 +53,7 @@ Remarks
     mkdir "c:\Program Files\xymon\tmp"
     ```
 
-- If you download the files through internet, they can be blocked (I did not so you should find yourself how to unblock them)
+- If you download the files through internet, they can be blocked (I did not so, so you will have to find yourself how to unblock them)
 - If you need to edit them, use notepad as admin and use "save as"
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8: notepad detect if there are UTF8 char automatically: so look the propose encoding type)
 
