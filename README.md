@@ -113,15 +113,15 @@ Remarks
 
 Contributions (No implemented so far)
 
-1. Check if "ext" folder exist et create if not:
-I added this before the first Function; note that I install and run from a C:\Utils folder, not Program Files, change as needed.
+1. Check if "ext" folder exist and if it does not, create it:
+- I added this before the first Function; note that I install and run from a C:\Utils folder, not Program Files, change as needed.
      ```
      $extfilepath = 'c:\Utils\ext'
       IF(!(Test-Path $extfilepath))
       {New-Item C:\Utils\ext –Type Directory}
+     ```
+2. Filter patchs older that 365 days
+- I also filtered the output in the ForEach loop by enclosing   
     ```
-2. Filter patch older that 365 days
-I also filtered the output in the ForEach loop by enclosing   
- ```
-If ($patchAge -lt 365){...}
- ```
+    If ($patchAge -lt 365){...}
+    ```
