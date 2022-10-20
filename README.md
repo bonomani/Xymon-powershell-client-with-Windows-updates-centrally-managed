@@ -111,7 +111,7 @@ Remarks
 - The updates.ps1 does a critical alarm only after 14 days (could be written somewhere)
 - Optionnally, as I do not want to have alarms for this test on my main page so I disable the alarm propagation (nopropyellow)
 
-Contributions (No implemented so far)
+## Contributions (No implemented so far)
 
 1. Check if "ext" folder exist and if it does not, create it:
 - I added this before the first Function; note that I install and run from a C:\Utils folder, not Program Files, change as needed.
