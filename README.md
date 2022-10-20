@@ -90,7 +90,7 @@ Configuration:
 Remarks
 - In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
 - In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (The [powershell] section does not exist at all... so you will have to create it first! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
-- the clientversion is not tested by me so far, but should do the quivalent as using the bb protocol but secured!: so I will have to test that I can replace "bb" by "https://x.x.x.x/xymon/download/": both option should be valid (even with http!) for the xymon client itself and external scripts as they are both managenet by the xymon client
+- the clientversion is not tested by me so far, but should do the quivalent as using the bb protocol but secured! (so this is the best option):  We should be able to replace "bb" by "https://x.x.x.x/xymon/download/": both option should be valid (even with http!) and this for the Xymon client itself and external scripts as their process are both managed by the Xymon client
 - The "external" line 
     - uses the native bb protocol, but you should also be able to use http (check that the updates.ps1 is not blocked if it is downloaded with http as this can be a problem/bug)
     - is not optimized by now: could be slowscan (and async?)
