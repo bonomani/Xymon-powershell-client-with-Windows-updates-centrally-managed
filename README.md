@@ -1,9 +1,12 @@
 # Xymon powershell client with Windows updates centrally managed 
 ![image](https://user-images.githubusercontent.com/8841264/196809858-d9535457-b7f6-4bf4-8e0d-b0550066b004.png)
 
-This is a working procedure to have Xymon monitoring with Windows Update 
+This is a working procedure to have Xymon monitoring with Windows Updates 
 - with the installation of the "powershell" client
-- (Tested so far with Windows 2016)
+- Tested so far with Windows 2016
+- No "Feature updates" (Version upgrade like going to version 22h2 in Windows 10)
+    - Only applicable to Windows "Desktop": There are no "Feature update" for Windows Server 
+    - Could be obtain probably by comparing the current version number and Windows Online (how??) 
 
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
