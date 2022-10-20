@@ -78,6 +78,7 @@ Configuration:
 - In etc/client-local.cfg
     ```
     [powershell]
+    clientversion:2.27:https://x.x.x.x/xymon/download/ 
     external:everyscan:sync:bb://updates.ps1|MD5|016e2f3725f2571698a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
@@ -89,6 +90,7 @@ Configuration:
 Remarks
 - In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
 - In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (The [powershell] section does not exist at all... so you will have to create it first! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
+- the clientversion is not tested by me so far, but should do the quivalent as using the bb protocol but secured!: so I will have to test that I can replace "bb" by "https://x.x.x.x/xymon/download/": both option should be valid (even with http!) for the xymon client itself and external scripts as they are both managenet by the xymon client
 - The "external" line 
     - uses the native bb protocol, but you should also be able to use http (check that the updates.ps1 is not blocked if it is downloaded with http as this can be a problem/bug)
     - is not optimized by now: could be slowscan (and async?)
