@@ -110,3 +110,18 @@ Remarks
 - To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
 - The updates.ps1 does a critical alarm only after 14 days (could be written somewhere)
 - Optionnally, as I do not want to have alarms for this test on my main page so I disable the alarm propagation (nopropyellow)
+
+Contribution (No implemented by now)
+
+1. Check if "ext" folder exist et create if not:
+Timothy: I added this before the first Function; note that I install and run from a C:\Utils folder, not Program Files, change as needed.
+ ```
+ $extfilepath = 'c:\Utils\ext'
+  IF(!(Test-Path $extfilepath))
+  {New-Item C:\Utils\ext –Type Directory}
+```
+2. Filter patch  older tha 365 
+Timothy: I also filtered the output in the ForEach loop by enclosing   
+ ```
+If ($patchAge -lt 365){...}
+ ```
