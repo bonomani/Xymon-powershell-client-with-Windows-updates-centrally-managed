@@ -125,3 +125,22 @@ Remarks
     ```
     If ($patchAge -lt 365){...}
     ```
+3. Old updates
+- As "cmd" admin, you can try (at your own risk, make a VM snapshot if you can!) 
+- Reboot before to have a clean state
+  ```
+  net stop wuauserv
+  net stop cryptSvc
+  net stop bits
+  net stop msiserver
+
+  del /f /q “%ALLUSERSPROFILE%\Application Data\Microsoft\Network\Downloader\qmgr*.dat”
+  del /f /s /q %SystemRoot%\SoftwareDistribution\*.*
+  del /f /s /q %SystemRoot%\system32\catroot2\*.*
+  del /f /q %SystemRoot%\WindowsUpdate.log
+
+  net start wuauserv
+  net start cryptSvc
+  net start bits
+  net start msiserver
+  ```
