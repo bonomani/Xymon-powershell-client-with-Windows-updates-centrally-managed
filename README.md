@@ -9,7 +9,7 @@
 - Add "feature updates" for Windows 10
 - Improve reporting (isHidden, RebootRequired) with isHidden logic
 - Add a debug variable (default to 0: remove logging by default)
-- Add compliance check (against the registry) : Check the registry for Windows Update Keys
+- Add compliance check (against the registry) : Check the registry for Windows Update Keys (See examples in the updates.ps1 file(
 - Improve "Reboot required" detection
 - Put all variables at the top of the file
 
