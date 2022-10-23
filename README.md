@@ -12,6 +12,7 @@
 - Add compliance check (against the registry) : Check the registry for Windows Update Keys (See examples in the updates.ps1 file(
 - Improve "Reboot required" detection
 - Put all variables at the top of the file
+- Add a retry and a protect logic in case Windows Update is not available
 
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
