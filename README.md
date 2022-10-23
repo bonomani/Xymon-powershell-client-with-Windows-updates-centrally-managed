@@ -1,7 +1,7 @@
 # Xymon powershell client with Windows updates centrally managed 
 ![image](https://user-images.githubusercontent.com/8841264/196809858-d9535457-b7f6-4bf4-8e0d-b0550066b004.png)
 
-Revision 0.01
+## Revision 0.01
 - Add "feature updates" for Windows 10
 - Improve reporting (isHidden, RebootRequired) with isHidden logic
 - Add debug variable (remove logging by default)
@@ -10,7 +10,7 @@ Revision 0.01
 - Put all variables at the top of the file
 
 
-##This is a working procedure to have Xymon monitoring with Windows Updates 
+## This is a working procedure to have Xymon monitoring with Windows Updates 
 - with the installation of the "powershell" client
 - Tested so far with Windows 2016 (Windows 10 partially)
  
