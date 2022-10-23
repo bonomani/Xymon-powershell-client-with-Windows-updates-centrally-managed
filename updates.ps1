@@ -19,8 +19,6 @@ Check That Windows Update is configured to disable Windows Automatic update
 [powershell]
 external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates 0 -ElevateNonAdmins 0
 
-
-
 #>
 [CmdletBinding()]
 param(
