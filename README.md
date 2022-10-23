@@ -77,6 +77,12 @@ Configuration:
             LOG %.*  %^warning.* COLOR=yellow IGNORE=%.*TermServDevices.*
             LOG %.*  %^failure.* COLOR=yellow
     ```
+- In etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
+- In "download", put the updates.ps1 script     
+    ```
+    wget https://raw.githubusercontent.com/bonomani/Xymon-powershell-client-with-Windows-updates-centrally-managed/main/updates.ps1
+    md5sum ./updates.ps1
+    ```
 - In etc/client-local.cfg
     ```
     [powershell]
@@ -85,13 +91,10 @@ Configuration:
     xymonlogsend
     ```
 - restart xymon
-- In "download", put the updates.ps1 script     
+- Optionally, if you dont want that this error propagate: In etc/hosts: 
     ```
-    wget https://raw.githubusercontent.com/bonomani/Xymon-powershell-client-with-Windows-updates-centrally-managed/main/updates.ps1
+    10.0.0.1              myserver.domain.tld                 # nopropyellow:updates nopropred:updates
     ```
-- In etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
-- (optional) In etc/hosts: 10.0.0.1              myserver.domain.tld                 # nopropyellow:updates nopropred:updates
-
 Remarks
 - In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
 - In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (The [powershell] section does not exist at all... so you will have to create it first! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
@@ -110,8 +113,7 @@ Remarks
     ```  
 - The "xymonlogsend" line allow to have a test/column named "xymonlog" for you windows machine that contains the "c:\program files\xymon\xymonclient.log" file
 - To check that the "xymonlogsend" line is working, see the last line of the "c:\program files\xymon\xymonclient.log" file is: XymonLogSend - sending log 
-- The updates.ps1 does a critical alarm only after 14 days (could be written somewhere)
-- Optionnally, as I do not want to have alarms for this test on my main page so I disable the alarm propagation (nopropyellow)
+- The updates.ps1 does a critical alarm only after 14 days 
 
 ## Contributions (No implemented so far)
 
