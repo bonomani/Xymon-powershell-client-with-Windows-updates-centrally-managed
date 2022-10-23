@@ -77,7 +77,10 @@ Configuration:
             LOG %.*  %^warning.* COLOR=yellow IGNORE=%.*TermServDevices.*
             LOG %.*  %^failure.* COLOR=yellow
     ```
-- In etc/xymonserver.cfg, increase the message size: MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
+- In etc/xymonserver.cfg, increase the message size (not sure it is really needed but seems a good value)
+    ```
+    MAXMSG_CLIENT=1024              # clientdata messages (default=512k)
+    ```
 - In "download", put the updates.ps1 script     
     ```
     wget https://raw.githubusercontent.com/bonomani/Xymon-powershell-client-with-Windows-updates-centrally-managed/main/updates.ps1
