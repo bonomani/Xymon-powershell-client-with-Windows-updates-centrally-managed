@@ -105,7 +105,7 @@ Remarks
 - the clientversion is not tested by me so far, but should do the equivalent as using the bb protocol but secured! (so this is the best option):  We should be able to replace "bb" by "https://x.x.x.x/xymon/download/": both option should be valid (even with http!) and this for the Xymon client itself and external scripts as their process are both managed by the Xymon client. The hash seems more optional than for external scripts as a change is managed by the version number (but I think it is a good idea to have it also)
 - The "external" line 
     - uses the native bb protocol, but you should also be able to use http (check that the updates.ps1 is not blocked if it is downloaded with http as this can be a problem/bug)
-    - is not optimized by now: could be slowscan (and async?)
+    - If Windows update is not available the process is block at least 10m (Windows update timeout) x retries (default:2) = 20Min: Need to be a slowscan and async)
 - You can test your script with: powershell.exe -executionpolicy remotesigned -file "c:\program files\xymon\ext\updates.ps1"
 - Check if your MD5 is correct: md5sum ./updates.ps1 and adjust it in your etc/client-local.cfg!
 - Check the log file on your windows server "c:\program files\xymon\xymonclient.log", you should see that 
