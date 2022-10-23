@@ -402,9 +402,9 @@ if ($MSsts) {
   } else {
     $outputText = $outputText + "&green "
   }
-  $outputText = $outputText + "Windows Updates available: $count`r`n"
+  $outputText = $outputText + "All Windows Updates available: $count`r`n"
 } else {
-  $outputText = $outputText + "&yellow Microsft Updates unreachable after retries: $MSRetries`r`n"
+  $outputText = $outputText + "&yellow Windows Updates unreachable after retries: $MSRetries`r`n"
 }
 if ($criticalCount -gt 0) {
   Write-DebugLog "Red colour due to critical updates"
