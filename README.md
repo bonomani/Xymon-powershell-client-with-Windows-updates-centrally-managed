@@ -16,10 +16,12 @@
 
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
-- Installed by following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw
+- Installed by following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw (but you probably do not need it)
     - The powershell agent installation steps: Open cmd prompt as admin 
         ```
         mkdir "c:\Program Files\xymon"
+        mkdir "c:\Program Files\xymon\ext"
+        mkdir "c:\Program Files\xymon\tmp"
         ```
         
     - Review xymonclient_config.xml and at the least, set the Xymon server address.
@@ -53,14 +55,7 @@ Remarks
 
 - Change the server's name with yours!  
 - I use only fqdn: my client also! 
-- We need 2 extra folders:
-
-    ```
-    mkdir "c:\Program Files\xymon\ext"
-    mkdir "c:\Program Files\xymon\tmp"
-    ```
-
-- If you download the files through internet, they can be blocked (This is explain in XymonPSClient.doc)
+- If you download the files through internet, they can be blocked (right click on the files, properties, unblock and apply)
 - If you need to edit them, use notepad as admin and use "save as"
 - Control that your files are in ANSI and not in UTF8 (Use notepad "save as" to verify that the encoding is ANSI and not UTF8: notepad detect if there are UTF8 char automatically: so look at the proposed encoding type)
 
