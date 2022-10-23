@@ -41,7 +41,7 @@
         ```
         ```
         (Not tested)
-        powershell.exe|-executionpolicy remotesigned -file "c:\Program Files\xymon\xymonclient.ps1" install
+        powershell.exe -executionpolicy remotesigned -file "c:\Program Files\xymon\xymonclient.ps1" install
         ...
         ```
 
