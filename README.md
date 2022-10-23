@@ -70,7 +70,7 @@ This explains how to have
 - A centrally managed powershell client
 - A centrally managed repository for all the external scripts
 
-The powershell client announce itself by default as 
+The powershell client announce itself to the Xymon server by default as 
 - Class : powershell
 - OS    : powershell
 
