@@ -29,20 +29,8 @@
         - xymonclient_config.xml
     -	Run the following command to install the service from a PowerShell prompt (may need to be an administrative prompt):
         ```
-        cd "c:\Program Files\xymon\"
-        powershell
-        Get-ExecutionPolicy -List 
-        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine
-        cd "c:\Program Files\xymon\"
-        .\xymonclient.ps1 install
-        .\xymonclient.ps1 start
-        Set-ExecutionPolicy -ExecutionPolicy AllSigned -Scope LocalMachine
-        Get-ExecutionPolicy -List 
-        ```
-        ```
-        (Not tested)
-        powershell.exe -executionpolicy remotesigned -file "c:\Program Files\xymon\xymonclient.ps1" install
-        ...
+        powershell -executionpolicy unrestricted -File "c:\Program Files\xymon\xymonclient.ps1" install
+        powershell -executionpolicy unrestricted -File "c:\Program Files\xymon\xymonclient.ps1" start
         ```
 
 Remarks
