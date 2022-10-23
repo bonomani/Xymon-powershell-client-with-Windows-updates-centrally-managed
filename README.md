@@ -2,11 +2,12 @@
 ![image](https://user-images.githubusercontent.com/8841264/196809858-d9535457-b7f6-4bf4-8e0d-b0550066b004.png)
 
 Revision 0.01
-- Add Feature update (Windows 10)
+- Add "feature updates" for Windows 10
 - Improve reporting (isHidden, RebootRequired) with isHidden logic
-- Add debug varibale (remove logging by default)
-- Add compliance check (again the registry) : Disable update check or conform (See script for example)
+- Add debug variable (remove logging by default)
+- Add compliance check (against the registry) : Check the registry for Windows Update Keys
 - Improve "Reboot required" detection
+- Put all variables at the top of the file
 
 This is a working procedure to have Xymon monitoring with Windows Updates 
 - with the installation of the "powershell" client
