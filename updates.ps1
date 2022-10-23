@@ -399,7 +399,12 @@ if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
 }
 if ($MSsts) {
-  $outputText = $outputText + "&$colour Windows Updates available: $count`r`n"
+  if ($count) {
+    $outputText = $outputText + "&$colour "
+  } else {
+    $outputText = $outputText + "&green "
+  }
+  $outputText = $outputText + "Windows Updates available: $count`r`n"
 } else {
   $outputText = $outputText + "&yellow Microsft Updates unreachable after retries: $MSRetries`r`n"
 }
