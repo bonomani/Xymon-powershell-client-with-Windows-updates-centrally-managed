@@ -3,7 +3,7 @@
 
 ## This is a working procedure to have Xymon monitoring with Windows Updates 
 - with the installation of the "powershell" client
-- Tested so far with Windows 2016 (Windows 10 partially)
+- Tested so far with Windows 2016, Windows 2019, Windows 10, Windows 11
  
 ### Revision 0.01
 - Add "feature updates" for Windows 10
