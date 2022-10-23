@@ -151,7 +151,7 @@ Remarks
   net start bits
   net start msiserver
   ```
-4. Update registry (Configure Windows Not To Update)
+4. Update registry (To configure Windows to not automatically start any update)
   ```
 # Define Registry paths, key(s) and variables
 #############################################
