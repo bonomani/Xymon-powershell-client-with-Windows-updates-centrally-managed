@@ -9,9 +9,10 @@ Revision 0.01
 - Improve "Reboot required" detection
 - Put all variables at the top of the file
 
-This is a working procedure to have Xymon monitoring with Windows Updates 
+
+##This is a working procedure to have Xymon monitoring with Windows Updates 
 - with the installation of the "powershell" client
-- Tested so far with Windows 2016
+- Tested so far with Windows 2016 (Windows 10 partially)
  
 
 ## Prerequisit 1: The powershell client (agent)
