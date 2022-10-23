@@ -400,7 +400,7 @@ if ($MSsts) {
   if ($count) {
     $outputText = $outputText + "&yellow Total Windows Updates available: $count`r`n"
   } else {
-    $outputText = $outputText + "&green Total Windows Updates available: 0`r`n""
+    $outputText = $outputText + "&green Total Windows Updates available: 0`r`n"
   }
 } else {
   $outputText = $outputText + "&yellow Windows Updates unreachable after retries: $MSRetries`r`n"
