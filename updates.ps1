@@ -398,12 +398,12 @@ if ($CheckCompliance) {
 }
 if ($MSsts) {
   if ($count) {
-    $outputText = $outputText + "&yellow Total Windows Updates available: $count`r`n"
+    $outputText = $outputText + "&yellow Total Windows update(s) available: $count`r`n"
   } else {
-    $outputText = $outputText + "&green Total Windows Updates available: 0`r`n"
+    $outputText = $outputText + "&green Total Windows update(s) available: 0`r`n"
   }
 } else {
-  $outputText = $outputText + "&yellow Windows Updates unreachable after retries: $MSRetries`r`n"
+  $outputText = $outputText + "&yellow Windows Update is unreachable after retries: $MSRetries`r`n"
 }
 if ($criticalCount -gt 0) {
   Write-DebugLog "Red colour due to critical updates"
@@ -411,7 +411,7 @@ if ($criticalCount -gt 0) {
 }
 if ($moderateCount -gt 0) {
   Write-DebugLog "Yellow colour due to moderate updates"
-  $outputText = $outputText + "&yellow Moderate Windows Update(s) available: $moderateCount`r`n"
+  $outputText = $outputText + "&yellow Moderate Windows update(s) available: $moderateCount`r`n"
 }
 if ($otherCount -gt 0) {
   Write-DebugLog "Green colour due to other updates"
