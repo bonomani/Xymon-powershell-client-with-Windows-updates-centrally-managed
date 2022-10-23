@@ -398,11 +398,10 @@ if ($CheckCompliance) {
 }
 if ($MSsts) {
   if ($count) {
-    $outputText = $outputText + "&$colour "
+    $outputText = $outputText + "&yellow Total Windows Updates available: $count`r`n"
   } else {
-    $outputText = $outputText + "&green "
+    $outputText = $outputText + "&green Total Windows Updates available: 0`r`n""
   }
-  $outputText = $outputText + "All Windows Updates available: $count`r`n"
 } else {
   $outputText = $outputText + "&yellow Windows Updates unreachable after retries: $MSRetries`r`n"
 }
