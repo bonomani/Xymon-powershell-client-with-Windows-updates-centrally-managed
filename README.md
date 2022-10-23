@@ -149,3 +149,58 @@ Remarks
   net start bits
   net start msiserver
   ```
+4. Update registry (Configure Windows Not To Update)
+  ```
+# Define Registry paths, key(s) and variables
+#############################################
+# paths
+$regPathAU = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU'
+$regPathWindowsUpdate = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate'
+
+# key(s)/variables
+$regPropertyENA = 'ElevateNonAdmins'
+$desiredValueENA = '0' # ElevateNonAdmins = 0 - Only users in the Administrators user group can approve or disapprove updates
+$response = ''
+#############################################
+
+#Test WU path, if path exists then create key, else create path then create key
+if (Test-Path -Path $regPathWindowsUpdate) {
+    Set-ItemProperty -Path $regPathWindowsUpdate -Name $regPropertyENA -Type DWord -Value $desiredValueENA -ErrorAction Stop
+    $response = 'WU - ElevateNonAdmins key created.'
+    Write-Output $response
+} else {
+    New-Item -Path $regPathWindowsUpdate -Force
+        $response = 'Created Windows Update registry path.'
+        Write-Output $response
+    Set-ItemProperty -Path $regPathWindowsUpdate -Name $regPropertyENA -Type DWord -Value $desiredValueENA -ErrorAction Stop
+    $response = 'WU - ElevateNonAdmins key created.'
+    Write-Output $response
+}
+
+# Test AU path, if path exists then create keys, else create path then create keys
+# NoAutoUpdate - 1 = enable Automatic Updates
+# AUOptions - 3 = Automatically download and notify of installation
+# AutoInstallMinorUpdates - 0 = Treat minor updates like other updates
+if (Test-Path -Path $regPathAU) {
+    'Name,Value,Type
+    NoAutoUpdate,1,DWORD
+    AUOptions,3,DWORD
+    AutoInstallMinorUpdates,0,DWORD' | 
+        ConvertFrom-Csv |
+        Set-ItemProperty -Path $regPathAU -Name { $_.Name } 
+      $response = 'AU Registry keys created.'
+      Write-Output $response
+    } else {
+        New-Item -Path $regPathAU -Force
+            $response = 'Created AU registry path.'
+            Write-Output $response
+        'Name,Value,Type
+        NoAutoUpdate,1,DWORD
+        AUOptions,3,DWORD
+        AutoInstallMinorUpdates,0,DWORD' | 
+            ConvertFrom-Csv |
+            Set-ItemProperty -Path $regPathAU -Name { $_.Name } 
+        $response = 'AU Registry keys created.'
+        Write-Output $response
+    }
+  ```
