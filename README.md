@@ -31,8 +31,18 @@
         ```
         cd "c:\Program Files\xymon\"
         powershell
+        Get-ExecutionPolicy -List 
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine
+        cd "c:\Program Files\xymon\"
         .\xymonclient.ps1 install
         .\xymonclient.ps1 start
+        Set-ExecutionPolicy -ExecutionPolicy AllSigned -Scope LocalMachine
+        Get-ExecutionPolicy -List 
+        ```
+        ```
+        (Not tested)
+        powershell.exe|-executionpolicy remotesigned -file "c:\Program Files\xymon\xymonclient.ps1" install
+        ...
         ```
 
 Remarks
