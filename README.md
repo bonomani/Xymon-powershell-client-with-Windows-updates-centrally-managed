@@ -90,7 +90,7 @@ Configuration:
     ```
     [powershell]
     clientversion:2.42:https://x.x.x.x/xymon/download/ 
-    external:slowscan:async:bb://updates.ps1|MD5|016e2f3725f2571698a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
+    external:everyscan:async:bb://updates.ps1|MD5|016e2f3725f2571698a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
 - restart xymon
