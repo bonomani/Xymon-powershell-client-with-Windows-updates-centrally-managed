@@ -226,8 +226,8 @@ function Check-CompliantRegistry {
       $defaultUProfile = "Server"
       $defaultAUOptions = $null
       $defaultNoAutoUpdate = 1
-      $defaultAutoInstallMinorUpdates = 1
-      $defaultElevateNonAdmins = 1
+      $defaultAutoInstallMinorUpdates = 0
+      $defaultElevateNonAdmins = 0
       if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
       if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
       if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
