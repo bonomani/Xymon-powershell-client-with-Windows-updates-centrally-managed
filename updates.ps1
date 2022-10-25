@@ -196,73 +196,122 @@ function Write-DebugLog {
 
 function Check-CompliantRegistry {
   # Check registry key/value for windows update
+  # GATHERS ALL DATA
   $regPathAU = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU'
   $regPathWindowsUpdate = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate'
   $regPropertyAUOptions = 'AUOptions'
   $regPropertyNAU = 'NoAutoUpdate'
   $regPropertyAIMU = 'AutoInstallMinorUpdates'
   $regPropertyENA = 'ElevateNonAdmins'
-  $defaultAUOptions = 3
-  $defaultNoAutoUpdate = 0
-  $defaultAutoInstallMinorUpdates = 1
-  $defaultElevateNonAdmins = 1
+  $regAU = Get-ItemProperty -Path $regPathAU -ErrorAction SilentlyContinue
+  $regWindowsUpdate = Get-ItemProperty -Path $regPathWindowsUpdate -ErrorAction SilentlyContinue
+  $regValueAUOptions = $regAU.$regPropertyAUOptions
+  $regValueNAU = $regAU.$regPropertyNAU
+  $regValueAIMU = $regAU.$regPropertyAIMU
+  $regValueAIMU = $regAU.$regPropertyAIMU
+  $regValueENA = $regWindowsUpdate.$regPropertyENA
+
   if ($CheckDefaultCompliance) {
-    if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
-    if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
-    if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
-    if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
+    if ((Get-WmiObject -Class Win32_OperatingSystem).ProductType -eq 1) { #Workstation: Use default 
+      $defaultUProfile = "Workstation"
+      $defaultAUOptions = $null # 3
+      $defaultNoAutoUpdate = $null #0
+      $defaultAutoInstallMinorUpdates = $null #1
+      $defaultElevateNonAdmins = $null # 1
+      if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
+      if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
+      if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
+      if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
+    } else { #Server: Manual default 
+      $defaultUProfile = "Server"
+      $defaultAUOptions = 3
+      $defaultNoAutoUpdate = 1
+      $defaultAutoInstallMinorUpdates = 1
+      $defaultElevateNonAdmins = 1
+      if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
+      if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
+      if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
+      if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
+    }
   }
+
+  $compliantOutputText = ""
+  # TRANSLATES REGISTRY FOR WINDOWS UPDATE TO USER FRIENDLY OUTPUT: SCONFIG like
+  switch ($regValueAUOptions) {
+    $null { $sconfigUpdate = "Download"; break }
+    1 { $sconfigUpdate = "Never check for updates (AUOptions=1)"; break }
+    2 { $sconfigUpdate = "Notify before downloading (AUOptions=2)"; break }
+    3 { $sconfigUpdate = "Download"; break }
+    4 { $sconfigUpdate = "Automatic"; break }
+  }
+  if ($regValueNAU -eq 1) {
+    if ($regValueAUOptions -eq $null) {
+      $sconfigUpdate = "Manual"
+      $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
+    } else {
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)"
+    }
+
+  } elseif ($regValueNAU -eq $null) {
+
+    $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
+    Write-DebugLog "toto"
+  } else {
+    $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)"
+  }
+  $compliantOutputText = $compliantOutputText + "Checking compatibility with profile for: $defaultUProfile`r`n"
+
   # Retrieve current values for comparison
   $compliantWinUpdateReg = $True
-  $compliantOutputText = ""
-  if (-not [string]::IsNullOrEmpty($AUOptions)) {
-    $regValueAUOptions = (Get-ItemProperty -Path $regPathAU -Name $regPropertyAUOptions -ErrorAction SilentlyContinue).$regPropertyAUOptions
-    if ($regValueAUOptions -eq $null) { $currentValueAUOptions = $defaultAUOptions } else { $currentValueAUOptions = $regValueAUOptions }
-    $notCompliantValueAUOptions = $currentValueAUOptions -ne $AUOptions
-    if ($notCompliantValueAUOptions) {
-      Write-DebugLog "Not compliant AUOptions: $currentValueAUOptions"
-      $compliantWinUpdateReg = $False
+  if ($regValueAUOptions -ne $AUOptions) {
+    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions"
+    $compliantWinUpdateReg = $False
+    if ($AUOptions -eq $null) {
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
+    } else {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (expected $AUOptions)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
     }
+  } else {
+    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
   }
-  if (-not [string]::IsNullOrEmpty($NoAutoUpdate)) {
-    $regValueNAU = (Get-ItemProperty -Path $regPathAU -Name $regPropertyNAU -ErrorAction SilentlyContinue).$regPropertyNAU
-    if ($regValueNAU -eq $null) { $currentValueNAU = $defaultNoAutoUpdate } else { $currentValueNAU = $regValueNAU }
-    $notCompliantValueNAU = $currentValueNAU -ne $NoAutoUpdate
-    if ($notCompliantValueNAU) {
-      Write-DebugLog "Not compliant NoAutoUpdate: $currentValueNAU`r`n"
-      $compliantWinUpdateReg = $False
+
+  if ($regValueNAU -ne $NoAutoUpdate) {
+    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU`r`n"
+    $compliantWinUpdateReg = $False
+    if ($NoAutoUpdate -eq $null) {
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (No key expected)`r`n"
+    } else {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (expected $NoAutoUpdate)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
     }
+  } else {
+    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
   }
-  if (-not [string]::IsNullOrEmpty($AutoInstallMinorUpdates)) {
-    $regValueAIMU = (Get-ItemProperty -Path $regPathAU -Name $regPropertyAIMU -ErrorAction SilentlyContinue).$regPropertyAIMU
-    if ($regValueAIMU -eq $null) { $currentValueAIMU = $defaultAutoInstallMinorUpdates } else { $currentValueAIMU = $regValueAIMU }
-    $notCompliantValueAIMU = $currentValueAIMU -ne $AutoInstallMinorUpdates
-    if ($notCompliantValueAIMU) {
-      Write-DebugLog "Not compliant AutoInstallMinorUpdates: $currentValueAIMU"
-      $compliantWinUpdateReg = $False
+
+  if ($regValueAIMU -ne $AutoInstallMinorUpdates) {
+    Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
+    $compliantWinUpdateReg = $False
+    if ($AutoInstallMinorUpdates -eq $null) {
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (No key expected)`r`n"
+    } else {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected $AutoInstallMinorUpdates)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
     }
+  } else {
+    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
   }
-  if (-not [string]::IsNullOrEmpty($ElevateNonAdmins)) {
-    $regValueENA = (Get-ItemProperty -Path $regPathWindowsUpdate -Name $regPropertyENA -ErrorAction SilentlyContinue).$regPropertyENA
-    if ($regValueENA -eq $null) { $currentValueENA = $defaultElevateNonAdmins } else { $currentValueENA = $regValueENA }
-    $notCompliantValueENA = $currentValueENA -ne $ElevateNonAdmins
-    if ($notCompliantValueENA) {
-      Write-DebugLog "Not compliant ElevateNonAdmins: $currentValueENA"
-      $compliantWinUpdateReg = $False
+
+  if ($regValueENA -ne $ElevateNonAdmins) {
+    Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
+    $compliantWinUpdateReg = $False
+    if ($ElevateNonAdmins -eq $null) {
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (No key expected)`)`r`n"
+    } else {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected $ElevateNonAdmins)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
     }
+  } else {
+    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
   }
+
+
   return $compliantWinUpdateReg,$compliantOutputText
 }
 
@@ -323,8 +372,7 @@ $MSCount = 0
 $MSStartTime = Get-Date
 do {
   try {
-    $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1"
-    #   $Criteria = "IsInstalled=0 and DeploymentAction=*"
+    $Criteria = "(IsInstalled=0 and DeploymentAction=*) or (IsPresent=1 and DeploymentAction='Uninstallation') or (IsInstalled=1 and DeploymentAction='Installation') and RebootRequired=1"
     $searchresult = $updatesearcher.Search($Criteria)
     $MSSts = $true
   } catch {
@@ -348,6 +396,7 @@ $Updates = if ($searchresult.Updates.Count -gt 0) {
       KB = $($Update.KBArticleIDs)
       SecurityBulletin = $($Update.SecurityBulletinIDs)
       MsrcSeverity = $Update.MsrcSeverity
+      IsInstalled = $Update.IsInstalled
       IsDownloaded = $Update.IsDownloaded
       IsHidden = $Update.IsHidden
       RebootRequired = $Update.RebootRequired
@@ -379,7 +428,8 @@ if ($count -gt 0) {
     $patchDate = $wUpdate.LastDeploymentChangeTime
     $patchAge = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
     $kb = $wUpdate.KB
-    $downloaded = $wUpdate.IsDownloaded
+    $IsInstalled = $wUpdate.IsInstalled
+    $IsDownloaded = $wUpdate.IsDownloaded
     $IsHidden = $wUpdate.IsHidden
     $RebootRequired = $wUpdate.RebootRequired
     $title = $wUpdate.Title
@@ -390,14 +440,14 @@ if ($count -gt 0) {
         $colour = Set-Colour $colour "yellow"
       }
       $criticalCount = $criticalCount + 1
-      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
+      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$Downloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     } elseif ($Severity -eq "Moderate" -or $Severity -eq "Important" -and -not $IsHidden) {
       $colour = Set-Colour $colour "yellow"
       $moderateCount = $moderateCount + 1
-      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$RebootRequired</td><td>$IsHidden</td><td>$Title</td></tr>`r`n"
+      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     } else {
       $otherCount = $otherCount + 1
-      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Downloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
+      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     }
   }
   if ($criticalCount -eq 0) {
@@ -422,6 +472,7 @@ $outputText = $outputText + "Globally critical after number of days: $dayLimit`r
 $outputText = $outputText + "Update service: $ServiceName`r`n"
 $outputText = $outputText + "Updates searching time: $MSRunTime`r`n"
 if ($CheckCompliance) {
+
   $outputText = $outputText + $compliantOutputText
 }
 if ($MSsts) {
@@ -452,7 +503,7 @@ if ($count -gt 0) {
   Write-DebugLog "Updates have been detected so output contains updates listing"
   $outputText = $outputText + "<p>&nbsp;</p>`r`n"
   $outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
-  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Downloaded</th><th>Hidden</th><th>RebootRequired</th><th>Title</th></tr>`r`n"
+  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Installed</th><th>Downloaded</th><th>Hidden</th><th>RebootRequired</th><th>Title</th></tr>`r`n"
   $outputText = $outputText + $criticalOutput
   $outputText = $outputText + $moderateOutput
   $outputText = $outputText + $otherOutput
