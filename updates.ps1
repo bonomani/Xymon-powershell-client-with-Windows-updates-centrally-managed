@@ -24,6 +24,7 @@ external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|po
 param(
   [Parameter()]
   [ValidateNotNullOrEmpty()]
+  [string]$From,#mu=Microsoft Update, wu Windows Update
   #                                                                 Default                       Recommended to Disable Auto Update         Do not download at all
   [string]$AUOptions,#               Usually not exist by default = 3:Download and notify update, 3                                          2: Do not download
   [string]$NoAutoUpdate,#            Usually not exist by default = 0:Autopdate,                  1:Disable autopdate
@@ -33,7 +34,7 @@ param(
   [switch]$CheckDefaultCompliance # Option above overwritte some default
 )
 $ScriptVersion = 0.01
-$dayLimit = 14 # Day before alarme became citical
+$dayLimit = 14 # Day before alarme became critical
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $outputFile = 'C:\Program Files\xymon\tmp\updates'
 $MSRetries = 1 # Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
@@ -191,9 +192,6 @@ function Write-DebugLog {
   )
   $datestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
   if ($debug) { Add-Content -Path $filepath -Value "$datestamp  $message" }
-
-
-
 }
 
 function Check-CompliantRegistry {
@@ -288,9 +286,36 @@ Write-DebugLog "Creating update searcher"
 $UpdateSearcher = $updatesession.CreateUpdateSearcher()
 Write-DebugLog "Searching for updates"
 if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
-  $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' # Microsoft Update online
-  $UpdateSearcher.SearchScope = 1 # MachineOnly
-  $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
+  #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' # Microsoft Update online
+  #$currentServiceID = ((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where {$_.IsDefaultAUService}).ServiceID # Current Service
+  #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'.ToUUID() 
+  if (-not [string]::IsNullOrEmpty($From)) {
+    if ($From -eq "mu") {
+      $ServiceName = "Microsoft Update"
+      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+      $UpdateSearcher.SearchScope = 1 # MachineOnly
+      $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
+    } elseif ($From -eq "wu") {
+      $ServiceName = "Windows Update"
+      $ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
+    } else {
+      # Fallback to Mirocoft Update
+      $ServiceName = "Microsoft Update"
+      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+    }
+  } else {
+    $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
+    $ServiceName = $DefaultAUService.Name
+    if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
+      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+      $UpdateSearcher.SearchScope = 1 # MachineOnly
+      $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
+    } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
+      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+    } else {
+      exit
+    }
+  }
 }
 
 $MSSts = $false
@@ -298,7 +323,9 @@ $MSCount = 0
 $MSStartTime = Get-Date
 do {
   try {
-    $searchresult = $updatesearcher.Search("IsInstalled=0 And DeploymentAction=*") # 0 = NotInstalled | 1 = Installed DeploymentAction=* include feature updates
+    $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1"
+    #   $Criteria = "IsInstalled=0 and DeploymentAction=*"
+    $searchresult = $updatesearcher.Search($Criteria)
     $MSSts = $true
   } catch {
   }
@@ -392,30 +419,31 @@ $dateString = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $outputText = $outputText + "$colour+12h $dateString`r`n"
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText = $outputText + "Globally critical after number of days: $dayLimit`r`n"
-$outputText = $outputText + "Windows Updates Searching time: $MSRunTime`r`n"
+$outputText = $outputText + "Update service: $ServiceName`r`n"
+$outputText = $outputText + "Updates searching time: $MSRunTime`r`n"
 if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
 }
 if ($MSsts) {
   if ($count) {
-    $outputText = $outputText + "&yellow Total Windows update(s) available: $count`r`n"
+    $outputText = $outputText + "&yellow Total update(s) available: $count`r`n"
   } else {
-    $outputText = $outputText + "&green Total Windows update(s) available: 0`r`n"
+    $outputText = $outputText + "&green Total update(s) available: 0`r`n"
   }
 } else {
-  $outputText = $outputText + "&yellow Windows Update is unreachable after retries: $MSRetries`r`n"
+  $outputText = $outputText + "&yellow Update is unreachable after retries: $MSRetries`r`n"
 }
 if ($criticalCount -gt 0) {
   Write-DebugLog "Red colour due to critical updates"
-  $outputText = $outputText + "&red Critical Windows update(s) available: $criticalCount`r`n"
+  $outputText = $outputText + "&red Critical update(s) available: $criticalCount`r`n"
 }
 if ($moderateCount -gt 0) {
   Write-DebugLog "Yellow colour due to moderate updates"
-  $outputText = $outputText + "&yellow Moderate Windows update(s) available: $moderateCount`r`n"
+  $outputText = $outputText + "&yellow Moderate update(s) available: $moderateCount`r`n"
 }
 if ($otherCount -gt 0) {
   Write-DebugLog "Green colour due to other updates"
-  $outputText = $outputText + "&green Other Windows update(s) available: $otherCount`r`n"
+  $outputText = $outputText + "&green Other update(s) available: $otherCount`r`n"
 }
 if ($PendingReboot) {
   $outputText = $outputText + "&yellow Reboot pending`r`n"
