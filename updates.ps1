@@ -224,7 +224,7 @@ function Check-CompliantRegistry {
       if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
     } else { #Server: Manual default 
       $defaultUProfile = "Server"
-      $defaultAUOptions = 3
+      $defaultAUOptions = $null
       $defaultNoAutoUpdate = 1
       $defaultAutoInstallMinorUpdates = 1
       $defaultElevateNonAdmins = 1
@@ -249,7 +249,7 @@ function Check-CompliantRegistry {
       $sconfigUpdate = "Manual"
       $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)"
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)`r`n"
     }
 
   } elseif ($regValueNAU -eq $null) {
@@ -257,7 +257,7 @@ function Check-CompliantRegistry {
     $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
     Write-DebugLog "toto"
   } else {
-    $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)"
+    $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)`r`n"
   }
   $compliantOutputText = $compliantOutputText + "Checking compatibility with profile for: $defaultUProfile`r`n"
 
