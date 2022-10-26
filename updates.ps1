@@ -17,13 +17,13 @@ external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|po
 
 Check That Windows Update is configured to disable Windows Automatic update 
 [powershell]
-external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates 0 -ElevateNonAdmins 0
+external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates $null -ElevateNonAdmins $null
 
 #>
 [CmdletBinding()]
 param(
   [Parameter()]
-  [ValidateNotNullOrEmpty()]
+  [AllowEmptyString()]
   [string]$From,#mu=Microsoft Update, wu Windows Update
   #                                                                 Default                       Recommended to Disable Auto Update         Do not download at all
   [string]$AUOptions,#               Usually not exist by default = 3:Download and notify update, 3                                          2: Do not download
@@ -36,9 +36,10 @@ param(
 $ScriptVersion = 0.01
 $dayLimit = 14 # Day before alarme became critical
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
-$outputFile = 'C:\Program Files\xymon\tmp\updates'
+$outputFile = 'c:\Program Files\xymon\tmp\updates'
 $MSRetries = 1 # Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
 $debug = 0 # Write to logfile 
+
 function Test-RegistryValue {
   param(
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()] $Path,
@@ -194,9 +195,20 @@ function Write-DebugLog {
   if ($debug) { Add-Content -Path $filepath -Value "$datestamp  $message" }
 }
 
-function Check-CompliantRegistry {
-  # Check registry key/value for windows update
-  # GATHERS ALL DATA
+if ($Version) {
+  Write-Host $ScriptVersion
+  exit
+}
+
+$dateLimit = (Get-Date).adddays(- $dayLimit)
+$Computername = $env:COMPUTERNAME
+Write-DebugLog "Searching for PendingReboot"
+$PendingReboot = Test-PendingReboot
+$CheckCompliance = $CheckDefaultCompliance -or -not [string]::IsNullOrEmpty($AUOptions) -or -not [string]::IsNullOrEmpty($NoAutoUpdate) -or -not [string]::IsNullOrEmpty($AutoInstallMinorUpdates) -or -not [string]::IsNullOrEmpty($ElevateNonAdmins)
+
+# Check Compliance Set default
+if ($CheckCompliance) {
+  # SET DEFAULT AND GATHERS ALL DATA
   $regPathAU = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU'
   $regPathWindowsUpdate = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate'
   $regPropertyAUOptions = 'AUOptions'
@@ -210,9 +222,6 @@ function Check-CompliantRegistry {
   $regValueAIMU = $regAU.$regPropertyAIMU
   $regValueAIMU = $regAU.$regPropertyAIMU
   $regValueENA = $regWindowsUpdate.$regPropertyENA
-
-
-
   if ($CheckDefaultCompliance) {
     if ((Get-WmiObject -Class Win32_OperatingSystem).ProductType -eq 1) { #Workstation: Use default 
       $defaultUProfile = "Workstation"
@@ -232,6 +241,8 @@ function Check-CompliantRegistry {
     if (-not $PSBoundParameters.ContainsKey($regPropertyAIMU)) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
     if (-not $PSBoundParameters.ContainsKey($regPropertyENA)) { $ElevateNonAdmins = $defaultElevateNonAdmins }
   }
+  Write-DebugLog "Searching for windows update registry compliance"
+  # Check registry key/value for windows update
 
   $compliantOutputText = ""
   $sconfigUpdate = $null
@@ -259,8 +270,8 @@ function Check-CompliantRegistry {
 
   # Retrieve current values for comparison
   $compliantWinUpdateReg = $True
-  if ($regValueAUOptions -ne $AUOptions) {
-    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions"
+  if (($regValueAUOptions -ne $AUOptions) -and -not (($regValueAUOptions -eq $null) -and ($AUOptions -eq ''))) {
+    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions titi:$AUOptions"
     $compliantWinUpdateReg = $False
     if ($AUOptions -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
@@ -271,8 +282,9 @@ function Check-CompliantRegistry {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
   }
 
-  if ($regValueNAU -ne $NoAutoUpdate) {
-    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU`r`n"
+  if (($regValueNAU -ne $NoAutoUpdate) -and -not (($regValueNAU -eq $null) -and ($NoAutoUpdate -eq ''))) {
+    $test = $NoAutoUpdate -eq $null
+    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU `r`n"
     $compliantWinUpdateReg = $False
     if ($NoAutoUpdate -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (No key expected)`r`n"
@@ -283,7 +295,7 @@ function Check-CompliantRegistry {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
   }
 
-  if ($regValueAIMU -ne $AutoInstallMinorUpdates) {
+  if (($regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
     Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
     $compliantWinUpdateReg = $False
     if ($AutoInstallMinorUpdates -eq $null) {
@@ -295,7 +307,7 @@ function Check-CompliantRegistry {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
   }
 
-  if ($regValueENA -ne $ElevateNonAdmins) {
+  if (($regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
     Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
     $compliantWinUpdateReg = $False
     if ($ElevateNonAdmins -eq $null) {
@@ -307,24 +319,8 @@ function Check-CompliantRegistry {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
   }
 
-
-  return $compliantWinUpdateReg,$compliantOutputText
 }
 
-if ($Version) {
-  Write-Host $ScriptVersion
-  exit
-}
-
-$dateLimit = (Get-Date).adddays(- $dayLimit)
-$Computername = $env:COMPUTERNAME
-Write-DebugLog "Searching for PendingReboot"
-$PendingReboot = Test-PendingReboot
-$CheckCompliance = $CheckDefaultCompliance -or -not [string]::IsNullOrEmpty($AUOptions) -or -not [string]::IsNullOrEmpty($NoAutoUpdate) -or -not [string]::IsNullOrEmpty($AutoInstallMinorUpdates) -or -not [string]::IsNullOrEmpty($ElevateNonAdmins)
-if ($CheckCompliance) {
-  Write-DebugLog "Searching for windows update registry compliance"
-  $compliantWinUpdateReg,$compliantOutputText = Check-CompliantRegistry
-}
 Write-DebugLog "Creating update session"
 $updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
 Write-DebugLog "Creating update searcher"
