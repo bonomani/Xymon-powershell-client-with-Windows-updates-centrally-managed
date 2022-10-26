@@ -1,11 +1,18 @@
 # Xymon powershell client with Windows updates centrally managed 
 ![image](https://user-images.githubusercontent.com/8841264/196809858-d9535457-b7f6-4bf4-8e0d-b0550066b004.png)
 
-## This is a working procedure to have Xymon monitoring with Windows Updates 
-- with the installation of the "powershell" client
+## Content
+- A working procedure to have Xymon monitoring with the powershell client and a **Windows Updates extension script** 
 - Tested so far with Windows 2016, Windows 2019, Windows 10, Windows 11
- 
-### Revision 0.01
+
+### Script "updates.ps1" version 0.02
+- Improve reporting (isInstalled) and criteria filtering
+- Use default repo (Microsoft vs Windows)
+- Improve reporting: Repo
+- Add delay for moderate and other logic
+- Detect Workstation VS Server and apply compliance logic (default for workstation; manual for server)
+
+### Script "updates.ps1" version 0.01
 - Add "feature updates" for Windows 10
 - Improve reporting (isHidden, RebootRequired) with isHidden logic
 - Add a debug variable (default to 0: remove logging by default)
