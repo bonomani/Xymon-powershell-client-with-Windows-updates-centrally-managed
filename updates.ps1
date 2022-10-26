@@ -304,7 +304,7 @@ if ($CheckCompliance) {
     if ($AUOptions -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (expected $AUOptions)`r`n"
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (expected: $AUOptions)`r`n"
     }
   } else {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
@@ -317,7 +317,7 @@ if ($CheckCompliance) {
     if ($NoAutoUpdate -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (No key expected)`r`n"
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (expected $NoAutoUpdate)`r`n"
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (expected: $NoAutoUpdate)`r`n"
     }
   } else {
     Write-DebugLog "1: $regValueNAU 2:$NoAutoUpdate"
@@ -330,7 +330,7 @@ if ($CheckCompliance) {
     if ($AutoInstallMinorUpdates -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (No key expected)`r`n"
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected $AutoInstallMinorUpdates)`r`n"
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected: $AutoInstallMinorUpdates)`r`n"
     }
   } else {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
@@ -342,7 +342,7 @@ if ($CheckCompliance) {
     if ($ElevateNonAdmins -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (No key expected)`)`r`n"
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected $ElevateNonAdmins)`r`n"
+      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected: $ElevateNonAdmins)`r`n"
     }
   } else {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
