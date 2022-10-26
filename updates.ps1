@@ -34,7 +34,9 @@ param(
   [switch]$CheckDefaultCompliance # Option above overwritte some default
 )
 $ScriptVersion = 0.01
-$dayLimit = 14 # Day before alarme became critical
+$CriticalLimit = 14 # Delay critical updates alarm for days
+$ModerateLimit = $CriticalLimit # Delay moderate updates alarm for days
+$OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
 $MSRetries = 1 # Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
@@ -200,7 +202,9 @@ if ($Version) {
   exit
 }
 
-$dateLimit = (Get-Date).adddays(- $dayLimit)
+$dateCriticalLimit = (Get-Date).adddays(- $CriticalLimit)
+$dateModerateLimit = (Get-Date).adddays(- $ModerateLimit)
+$dateOtherLimit = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
 Write-DebugLog "Searching for PendingReboot"
 $PendingReboot = Test-PendingReboot
@@ -294,8 +298,8 @@ if ($CheckCompliance) {
 
   # Retrieve current values for comparison
   $compliantWinUpdateReg = $True
-  if (($regValueAUOptions -ne $AUOptions) -and -not (($regValueAUOptions -eq $null) -and ($AUOptions -eq ''))) {
-    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions titi:$AUOptions"
+  if (([string]$regValueAUOptions -ne $AUOptions) -and -not (($regValueAUOptions -eq $null) -and ($AUOptions -eq ''))) {
+    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions`r`n"
     $compliantWinUpdateReg = $False
     if ($AUOptions -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
@@ -306,7 +310,7 @@ if ($CheckCompliance) {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
   }
 
-  if (($regValueNAU -ne $NoAutoUpdate) -and -not (($regValueNAU -eq $null) -and ($NoAutoUpdate -eq ''))) {
+  if (([string]$regValueNAU -ne $NoAutoUpdate) -and -not (($regValueNAU -eq $null) -and ($NoAutoUpdate -eq ''))) {
     $test = $NoAutoUpdate -eq $null
     Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU `r`n"
     $compliantWinUpdateReg = $False
@@ -316,10 +320,11 @@ if ($CheckCompliance) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (expected $NoAutoUpdate)`r`n"
     }
   } else {
+    Write-DebugLog "1: $regValueNAU 2:$NoAutoUpdate"
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
   }
 
-  if (($regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
+  if (([string]$regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
     Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
     $compliantWinUpdateReg = $False
     if ($AutoInstallMinorUpdates -eq $null) {
@@ -331,7 +336,7 @@ if ($CheckCompliance) {
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
   }
 
-  if (($regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
+  if (([string]$regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
     Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
     $compliantWinUpdateReg = $False
     if ($ElevateNonAdmins -eq $null) {
@@ -450,7 +455,7 @@ if ($count -gt 0) {
     $RebootRequired = $wUpdate.RebootRequired
     $title = $wUpdate.Title
     if ($Severity -eq "Critical" -and -not $IsHidden) {
-      if ($patchDate -lt $dateLimit) {
+      if ($patchDate -lt $dateCriticalLimit) {
         $colour = Set-Colour $colour "red"
       } else {
         $colour = Set-Colour $colour "yellow"
@@ -458,10 +463,19 @@ if ($count -gt 0) {
       $criticalCount = $criticalCount + 1
       $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$Downloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     } elseif ($Severity -eq "Moderate" -or $Severity -eq "Important" -and -not $IsHidden) {
-      $colour = Set-Colour $colour "yellow"
+      if ($patchDate -lt $dateModerateLimit) {
+        $colour = Set-Colour $colour "yellow"
+      } else {
+        $colour = Set-Colour $colour "green"
+      }
       $moderateCount = $moderateCount + 1
       $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     } else {
+      if ($patchDate -lt $dateOtherLimit) {
+        $colour = Set-Colour $colour "yellow"
+      } else {
+        $colour = Set-Colour $colour "green"
+      }
       $otherCount = $otherCount + 1
       $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
     }
@@ -484,7 +498,9 @@ Write-DebugLog "Get current date"
 $dateString = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $outputText = $outputText + "$colour+12h $dateString`r`n"
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
-$outputText = $outputText + "Globally critical after number of days: $dayLimit`r`n"
+$outputText = $outputText + "Delay critical alarm updates in days: $CriticalLimit`r`n"
+$outputText = $outputText + "Delay moderate alarm updates in days: $ModerateLimit`r`n"
+$outputText = $outputText + "Delay other alarm updates in days: $OtherLimit`r`n"
 $outputText = $outputText + "Update service: $ServiceName`r`n"
 $outputText = $outputText + "Updates searching time: $MSRunTime`r`n"
 if ($CheckCompliance) {
