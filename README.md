@@ -5,14 +5,14 @@
 - A working procedure to have Xymon monitoring with the powershell client and a **Windows Updates extension script** 
 - Tested so far with Windows 2016, Windows 2019, Windows 10, Windows 11
 
-### Script "updates.ps1" version 0.02
+### Script "updates.ps1" v0.2
 - Improve reporting (isInstalled) and criteria filtering
 - Use default repo (Microsoft vs Windows)
 - Improve reporting: Repo
 - Add delay for moderate and other logic
 - Detect Workstation VS Server and apply compliance logic (default for workstation; manual for server)
 
-### Script "updates.ps1" version 0.01
+### Script "updates.ps1" v0.1
 - Add "feature updates" for Windows 10
 - Improve reporting (isHidden, RebootRequired) with isHidden logic
 - Add a debug variable (default to 0: remove logging by default)
