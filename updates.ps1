@@ -211,10 +211,12 @@ function Check-CompliantRegistry {
   $regValueAIMU = $regAU.$regPropertyAIMU
   $regValueENA = $regWindowsUpdate.$regPropertyENA
 
+
+
   if ($CheckDefaultCompliance) {
     if ((Get-WmiObject -Class Win32_OperatingSystem).ProductType -eq 1) { #Workstation: Use default 
       $defaultUProfile = "Workstation"
-      $defaultAUOptions = $null # 3
+      $defaultAUOptions = $null # 3 if defaultNoAutoUpdate<>1 
       $defaultNoAutoUpdate = $null #0
       $defaultAutoInstallMinorUpdates = $null #1
       $defaultElevateNonAdmins = $null # 1
@@ -224,7 +226,7 @@ function Check-CompliantRegistry {
       if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
     } else { #Server: Manual default 
       $defaultUProfile = "Server"
-      $defaultAUOptions = $null
+      $defaultAUOptions = 1
       $defaultNoAutoUpdate = 1
       $defaultAutoInstallMinorUpdates = 0
       $defaultElevateNonAdmins = 0
@@ -236,28 +238,26 @@ function Check-CompliantRegistry {
   }
 
   $compliantOutputText = ""
+  $sconfigUpdate = $null
   # TRANSLATES REGISTRY FOR WINDOWS UPDATE TO USER FRIENDLY OUTPUT: SCONFIG like
-  switch ($regValueAUOptions) {
-    $null { $sconfigUpdate = "Download"; break }
-    1 { $sconfigUpdate = "Never check for updates (AUOptions=1)"; break }
-    2 { $sconfigUpdate = "Notify before downloading (AUOptions=2)"; break }
-    3 { $sconfigUpdate = "Download"; break }
-    4 { $sconfigUpdate = "Automatic"; break }
-  }
   if ($regValueNAU -eq 1) {
-    if ($regValueAUOptions -eq $null) {
+    if (($regValueAUOptions -eq $null) -or ($regValueAUOptions -eq 1)) {
       $sconfigUpdate = "Manual"
-      $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)`r`n"
+
     }
-
-  } elseif ($regValueNAU -eq $null) {
-
-    $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
-    Write-DebugLog "toto"
-  } else {
+  } elseif (($regValueNAU -eq $null) -or ($regValueNAU -eq 0)) {
+    switch ($regValueAUOptions) {
+      $null { $sconfigUpdate = "Download"; break }
+      1 { $sconfigUpdate = "Manual"; break }
+      2 { $sconfigUpdate = "Notify before downloading (AUOptions=2)"; break }
+      3 { $sconfigUpdate = "Download"; break }
+      4 { $sconfigUpdate = "Automatic"; break }
+    }
+  }
+  if ($sconfigUpdate -eq $null) {
     $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)`r`n"
+  } else {
+    $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
   }
   $compliantOutputText = $compliantOutputText + "Checking compatibility with profile for: $defaultUProfile`r`n"
 
