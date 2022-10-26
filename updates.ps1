@@ -220,21 +220,17 @@ function Check-CompliantRegistry {
       $defaultNoAutoUpdate = $null #0
       $defaultAutoInstallMinorUpdates = $null #1
       $defaultElevateNonAdmins = $null # 1
-      if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
-      if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
-      if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
-      if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
-    } else { #Server: Manual default 
+    } else { #Server:  default to "Manual"
       $defaultUProfile = "Server"
       $defaultAUOptions = 1
       $defaultNoAutoUpdate = 1
       $defaultAutoInstallMinorUpdates = 0
       $defaultElevateNonAdmins = 0
-      if (-not $AUOptions) { $AUOptions = $defaultAUOptions }
-      if (-not $NoAutoUpdate) { $NoAutoUpdate = $defaultNoAutoUpdate }
-      if (-not $AutoInstallMinorUpdates) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
-      if (-not $ElevateNonAdmins) { $ElevateNonAdmins = $defaultElevateNonAdmins }
     }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyAUOptions)) { $AUOptions = $defaultAUOptions }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyNAU)) { $NoAutoUpdate = $defaultNoAutoUpdate }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyAIMU)) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyENA)) { $ElevateNonAdmins = $defaultElevateNonAdmins }
   }
 
   $compliantOutputText = ""
