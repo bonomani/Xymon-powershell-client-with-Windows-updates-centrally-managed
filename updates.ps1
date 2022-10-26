@@ -2,7 +2,7 @@
 # Script written by someone else and modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
-# Version 0.01 / 22.10.2022 - Updated Script - Bonomani
+# Version 0.02 / 26.10.2022 - Updated Script - Bonomani
 ###############################################################################
 <#
 .SYNOPSIS
