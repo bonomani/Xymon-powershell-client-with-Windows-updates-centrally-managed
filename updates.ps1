@@ -236,10 +236,34 @@ if ($CheckCompliance) {
       $defaultAutoInstallMinorUpdates = 0
       $defaultElevateNonAdmins = 0
     }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyAUOptions)) { $AUOptions = $defaultAUOptions }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyNAU)) { $NoAutoUpdate = $defaultNoAutoUpdate }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyAIMU)) { $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyENA)) { $ElevateNonAdmins = $defaultElevateNonAdmins }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyAUOptions)) {
+      $AUOptions = $defaultAUOptions
+    } else {
+      if ($AUOptions -eq '$null') {
+        $AUOptions = $null
+      }
+    }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyNAU)) {
+      $NoAutoUpdate = $defaultNoAutoUpdate
+    } else {
+      if ($NoAutoUpdate -eq '$null') {
+        $NoAutoUpdate = $null
+      }
+    }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyAIMU)) {
+      $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates
+    } else {
+      if ($AutoInstallMinorUpdates -eq '$null') {
+        $AutoInstallMinorUpdates = $null
+      }
+    }
+    if (-not $PSBoundParameters.ContainsKey($regPropertyENA)) {
+      $ElevateNonAdmins = $defaultElevateNonAdmins
+    } else {
+      if ($ElevateNonAdmins -eq '$null') {
+        $ElevateNonAdmins = $null
+      }
+    }
   }
   Write-DebugLog "Searching for windows update registry compliance"
   # Check registry key/value for windows update
