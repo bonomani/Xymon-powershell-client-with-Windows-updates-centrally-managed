@@ -50,7 +50,8 @@ param(
   [switch]$Version,
   [switch]$CheckDefaultCompliance # Option above overwritte some default
 )
-$ScriptVersion = 0.02
+$ScriptVersion = 0.2
+
 $CriticalLimit = 14 # Delay critical updates alarm for days
 $ModerateLimit = $CriticalLimit # Delay moderate updates alarm for days
 $OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
