@@ -2,7 +2,7 @@
 # Script written by someone else and modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
-# Version 0.02 / 26.10.2022 - Updated Script - Bonomani
+# Version 0.2 / 27.10.2022 - Updated Script - Bonomani
 ###############################################################################
 <#
 .SYNOPSIS
@@ -104,52 +104,52 @@ function Test-PendingReboot
 {
   [bool]$PendingReboot = $false
   #Check for Keys
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true)  {
+  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting") -eq $true)  {
+  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true)  {
+  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") -eq $true)  {
+  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts") -eq $true)  {
+  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts"
     $PendingReboot = $true
   }
   #Check for Values
-  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "RebootInProgress") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "RebootInProgress") -eq $true) {
     Write-DebugLog "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing > RebootInProgress"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "PackagesPending") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "PackagesPending") -eq $true) {
     Write-DebugLog "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing > PackagesPending"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations") -eq $true) {
     Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager > PendingFileRenameOperations"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations2") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations2") -eq $true) {
     Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager > PendingFileRenameOperations2"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Value "DVDRebootSignal") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Value "DVDRebootSignal") -eq $true) {
     Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce > DVDRebootSignal"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "JoinDomain") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "JoinDomain") -eq $true) {
     Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon > JoinDomain"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "AvoidSpnSet") -eq $true)  {
+  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "AvoidSpnSet") -eq $true) {
     Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon > AvoidSpnSet"
     $PendingReboot = $true
   }
@@ -200,6 +200,12 @@ $dateCriticalLimit = (Get-Date).adddays(- $CriticalLimit)
 $dateModerateLimit = (Get-Date).adddays(- $ModerateLimit)
 $dateOtherLimit = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
+# Get OS: $osversionLookup[$osVersion]
+$os = Get-WmiObject Win32_OperatingSystem
+$osVersion = $os.version
+if (([version]$osVersion).Major -eq "10") { $osVersion = "$(([version]$osVersion).Major).$(([version]$osVersion).Minor).*" }
+$osversionLookup = @{ "5.1.2600" = "XP"; "5.1.3790" = "2003"; "6.0.6001" = "Vista/2008"; "6.1.7600" = "Win7/2008R2"; "6.1.7601" = "Win7 SP1/2008R2 SP1"; "6.2.9200" = "Win8/2012"; "6.3.9600" = "Win8.1/2012R2"; "10.0.*" = "Windows 10/Server 2016" };
+
 Write-DebugLog "Searching for PendingReboot"
 $PendingReboot = Test-PendingReboot
 $CheckCompliance = $CheckDefaultCompliance -or -not [string]::IsNullOrEmpty($AUOptions) -or -not [string]::IsNullOrEmpty($NoAutoUpdate) -or -not [string]::IsNullOrEmpty($AutoInstallMinorUpdates) -or -not [string]::IsNullOrEmpty($ElevateNonAdmins)
@@ -317,31 +323,32 @@ if ($CheckCompliance) {
     Write-DebugLog "1: $regValueNAU 2:$NoAutoUpdate"
     $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
   }
-
-  if (([string]$regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
-    Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
-    $compliantWinUpdateReg = $False
-    if ($AutoInstallMinorUpdates -eq $null) {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (No key expected)`r`n"
+  if ($osversionLookup[$osVersion] -ne "Windows 10/Server 2016") { # Dirty Remove defer feature
+    if (([string]$regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
+      Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
+      $compliantWinUpdateReg = $False
+      if ($AutoInstallMinorUpdates -eq $null) {
+        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (No key expected)`r`n"
+      } else {
+        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected: $AutoInstallMinorUpdates)`r`n"
+      }
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected: $AutoInstallMinorUpdates)`r`n"
+      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
     }
-  } else {
-    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
-  }
 
-  if (([string]$regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
-    Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
-    $compliantWinUpdateReg = $False
-    if ($ElevateNonAdmins -eq $null) {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (No key expected)`)`r`n"
+    if (([string]$regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
+      Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
+      $compliantWinUpdateReg = $False
+      if ($ElevateNonAdmins -eq $null) {
+        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (No key expected)`)`r`n"
+      } else {
+        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected: $ElevateNonAdmins)`r`n"
+      }
     } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected: $ElevateNonAdmins)`r`n"
+      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
     }
-  } else {
-    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
-  }
 
+  }
 }
 
 Write-DebugLog "Creating update session"
