@@ -11,6 +11,7 @@
 - Improve reporting: Repo
 - Add delay for moderate and other logic
 - Detect Workstation VS Server and apply compliance logic (default for workstation; manual for server)
+- Resolve UTF8 problem (see ymonclient_config.xml) 
 
 ### Script "updates.ps1" v0.1
 - Add "feature updates" for Windows 10
@@ -57,6 +58,7 @@ Remarks
             <clientremotecfgexec>1</clientremotecfgexec>
             <externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
             <externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
+            <XymonAcceptUTF8>1</XymonAcceptUTF8> 
     </XymonSettings>
     ```
 
