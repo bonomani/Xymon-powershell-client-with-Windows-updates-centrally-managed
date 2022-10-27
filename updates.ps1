@@ -544,4 +544,4 @@ if ($count -gt 0) {
 }
 
 Write-DebugLog "Save contents into tmp file"
-$outputText | Set-Content $outputFile
+$outputText | Set-Content -Encoding UTF8 $outputFile
