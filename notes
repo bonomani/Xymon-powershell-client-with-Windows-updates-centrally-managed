@@ -79,13 +79,27 @@ Info: August 6, 2002
 
 Info 2022: Keys 2
 
-        [HKEY_LOCAL_MACHINE \Software \Policies \Microsoft \Windows \WindowsUpdate \AU]
-        NoAutoRebootWithLoggedOnUsers = 1 (0 = Can reboot while users are logged on)
-        [HKEY_LOCAL_MACHINE \Software \Policies \Microsoft \Windows \WindowsUpdate ]
-        ExcludeWUDriversInQualityUpdate
+[HKEY_LOCAL_MACHINE \Software \Policies \Microsoft \Windows \WindowsUpdate \AU]
+NoAutoRebootWithLoggedOnUsers = 1 (0 = Can reboot while users are logged on)
+[HKEY_LOCAL_MACHINE \Software \Policies \Microsoft \Windows \WindowsUpdate ]
+ExcludeWUDriversInQualityUpdate
+        
+Windows 10 server 2016 an uppper:
+DeferUpgradePeriod = 1 (Month until 8)
+DeferUpdatePeriod = 1 (week until 4)
+DeferUpgrade
+
+If the "Allow Telemetry" policy is enabled and the Options value is set to 0, then the "Defer upgrades by", "Defer updates by" and "Pause Updates and Upgrades" settings have no effect
+
+PauseDeferrals (Pause Upgrades and Updates)
+AutoInstallMinorUpdates:  Not supported on Windows 10 and above.
+ElevateNonAdmins  Not supported on Windows 10 and above.
 
 Improvemenent
 - make test 5 minutes before windows or quit
 - make test duration of the  DetectionFrequency or  LastWaitTimeout-DetectionStartTime 
 Manipulate Date in powershell
 $date.AddMinutes(100) -gt (get-date)
+
+
+
