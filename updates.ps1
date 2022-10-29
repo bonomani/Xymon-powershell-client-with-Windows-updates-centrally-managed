@@ -359,6 +359,7 @@ if ($CheckCompliance) {
 }
 # Use a cache to not bloat the system
 $cacheIsInvalid = $true
+$ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
 if (Test-Path -Path $cachefile -PathType Leaf) {
   Write-DebugLog "Process cache reading "
   $scanCache = Get-Content $cachefile | ConvertFrom-Json
@@ -386,11 +387,8 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
       Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
     }
     $cacheIsInvalid = $true
-  } elseif ($scanCache.ParentProcessId -ne (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID) { # Parent process changed (restarted)
+  } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) { # Parent process changed (restarted)
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
-    $cacheIsInvalid = $true
-  } elseif (($PID.Parent.Id -eq $null) -and (-not $DebugCache)) { # No parent process changed: direct command (but not in $DebugCache mode) 
-    Write-DebugLog "Cache invalidated as command start from console"
     $cacheIsInvalid = $true
   } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
     Write-DebugLog "Cache invalidated by Windows update changes"
@@ -491,7 +489,7 @@ if ($cacheIsInvalid) {
   # Prepare the cache
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
-    ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
+    ParentProcessId = $ParentProcessId
     date = $StartTime
     Update = $Updates
   }
@@ -589,7 +587,6 @@ $outputText = $outputText + "Delay other update alarms [days]: $OtherLimit`r`n"
 $outputText = $outputText + "Update service: $ServiceName`r`n"
 $outputText = $outputText + "Updates searching time: $MSRunTime`r`n"
 if ($CheckCompliance) {
-
   $outputText = $outputText + $compliantOutputText
 }
 if ($MSsts) {
