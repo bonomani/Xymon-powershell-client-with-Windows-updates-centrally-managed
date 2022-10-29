@@ -59,7 +59,7 @@ $OtherLimit = 2 * $ModerateLimit #   Delay other updates alarm for days
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
-$SearchRetries = 1 #                 Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
+$SearchRetries = 0 #                 Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
 $debug = 0 #                         Write to logfile 
 
 function Write-DebugLog {
@@ -450,7 +450,7 @@ if ($cacheIsInvalid) {
     } catch {
     }
     $SearchCount++
-  } until ($SearchOnlineSuccess -or ($SearchCount -eq $SearchRetries))
+  } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1) ))
   $Updates = if ($searchresult.Updates.Count -gt 0) {
     #Updates are  waiting to be installed
     #Cache the count to make the For loop run faster
