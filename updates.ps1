@@ -512,10 +512,9 @@ if ($cacheIsInvalid) {
   $SearchOnlineSucces = $scanCache.SearchOnlineSucces
   $count = $Updates.Count
   $SearchCacheSucces = $true
-
 }
 
-$RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss")
+$RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss':'fff")
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
   $criticalCount = 0
