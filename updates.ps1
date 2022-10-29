@@ -389,7 +389,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) { # Parent process changed (restarted)
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
+  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchOnlineSuccessDate) { #last Windows update search was perform
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
   } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $StartTime) {
@@ -439,18 +439,18 @@ if ($cacheIsInvalid) {
     }
   }
 
-  $SearchStatus = $false
+  $SearchOnlineSuccess = $false
   $SearchCount = 0
 
   do {
     try {
       $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
       $searchresult = $updatesearcher.Search($Criteria)
-      $SearchStatus = $true
+      $SearchOnlineSuccess = $true
     } catch {
     }
     $SearchCount++
-  } until ($SearchStatus -or $SearchCount -eq $SearchRetries)
+  } until ($SearchOnlineSuccess -or ($SearchCount -eq $SearchRetries))
   $Updates = if ($searchresult.Updates.Count -gt 0) {
     #Updates are  waiting to be installed
     #Cache the count to make the For loop run faster
@@ -491,6 +491,7 @@ if ($cacheIsInvalid) {
     ParentProcessId = $ParentProcessId
     date = $StartTime
     Update = $Updates
+    SearchOnlineSucces = $SearchOnlineSucces
   }
   # Write the cache
   ConvertTo-Json -Depth 4 -InputObject $scan | Out-File $cachefile
@@ -508,10 +509,12 @@ if ($cacheIsInvalid) {
   }
   # Take info from cache
   [array]$Updates = $scanCache.Update
+  $SearchOnlineSucces = $scanCache.SearchOnlineSucces
   $count = $Updates.Count
+  $SearchCacheSucces = $true
+
 }
-#$MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
-#$MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
+
 $RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss")
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
@@ -573,7 +576,7 @@ if ($count -gt 0) {
   $colour = "green"
 }
 
-if ($PendingReboot -or -not $SearchStatus -or -not $compliantWinUpdateReg) {
+if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg) {
   $colour = Set-Colour $colour "yellow"
 }
 
@@ -589,13 +592,14 @@ $outputText = $outputText + "Updates searching time: $RunTime`r`n"
 if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
 }
-if ($SearchStatus) {
-  if ($count) {
-    $outputText = $outputText + "&yellow Total update(s) available: $count`r`n"
-  } else {
-    $outputText = $outputText + "&green Total update(s) available: 0`r`n"
-  }
+
+if ($count) {
+  $outputText = $outputText + "&yellow Total update(s) available: $count`r`n"
 } else {
+  $outputText = $outputText + "&green Total update(s) available: 0`r`n"
+}
+
+if (-not $SearchOnlineSuccess) {
   $outputText = $outputText + "&yellow Update is unreachable after retries: $SearchRetries`r`n"
 }
 if ($criticalCount -gt 0) {
