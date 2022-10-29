@@ -35,7 +35,7 @@ Experimental options (can be change withour notice)
 -ElevateNonAdmins [int]
 -From [string](wu:Windows Update, mu:Microsoft Update)
 -Version
--DebugCache
+
 
 #>
 
@@ -50,8 +50,7 @@ param(
   [string]$AutoInstallMinorUpdates,# Usually not exist by default = 1:AutoInstallMinorUpdates,    0:Disable AutoInstallMinorUpdates
   [string]$ElevateNonAdmins,#        Usually not exist by default = 1:ElevateNonAdmins            0;Disable ElevateNonAdmins
   [switch]$Version,
-  [switch]$CheckDefaultCompliance,#  Option above overwritte some default
-  [switch]$DebugCache #              Force caching behaviour (only for testing purpose if started by console, as the cache is desactivated if the script is started manually)
+  [switch]$CheckDefaultCompliance #  Option above overwritte some default
 )
 
 $CriticalLimit = 14 #                Delay critical updates alarm for days
@@ -60,7 +59,7 @@ $OtherLimit = 2 * $ModerateLimit #   Delay other updates alarm for days
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
-$MSRetries = 1 #                     Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
+$SearchRetries = 1 #                 Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
 $debug = 0 #                         Write to logfile 
 
 function Write-DebugLog {
@@ -440,18 +439,18 @@ if ($cacheIsInvalid) {
     }
   }
 
-  $MSSts = $false
-  $MSCount = 0
+  $SearchStatus = $false
+  $SearchCount = 0
 
   do {
     try {
       $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
       $searchresult = $updatesearcher.Search($Criteria)
-      $MSSts = $true
+      $SearchStatus = $true
     } catch {
     }
-    $MSCount++
-  } until ($MSSts -or $MSCount -eq $MSRetries)
+    $SearchCount++
+  } until ($SearchStatus -or $SearchCount -eq $SearchRetries)
   $Updates = if ($searchresult.Updates.Count -gt 0) {
     #Updates are  waiting to be installed
     #Cache the count to make the For loop run faster
@@ -508,11 +507,12 @@ if ($cacheIsInvalid) {
     $ServiceName = "Microsoft Update"
   }
   # Take info from cache
-  $Updates = $scanCache.Update
+  [array]$Updates = $scanCache.Update
   $count = $Updates.Count
 }
-$MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
-$MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
+#$MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
+#$MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
+$RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss")
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
   $criticalCount = 0
@@ -573,7 +573,7 @@ if ($count -gt 0) {
   $colour = "green"
 }
 
-if ($PendingReboot -or -not $MSsts -or -not $compliantWinUpdateReg) {
+if ($PendingReboot -or -not $SearchStatus -or -not $compliantWinUpdateReg) {
   $colour = Set-Colour $colour "yellow"
 }
 
@@ -585,11 +585,11 @@ $outputText = $outputText + "Delay critical update alarms in [days]: $CriticalLi
 $outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLimit`r`n"
 $outputText = $outputText + "Delay other update alarms [days]: $OtherLimit`r`n"
 $outputText = $outputText + "Update service: $ServiceName`r`n"
-$outputText = $outputText + "Updates searching time: $MSRunTime`r`n"
+$outputText = $outputText + "Updates searching time: $RunTime`r`n"
 if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
 }
-if ($MSsts) {
+if ($SearchStatus) {
   if ($count) {
     $outputText = $outputText + "&yellow Total update(s) available: $count`r`n"
   } else {
