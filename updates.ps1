@@ -596,7 +596,7 @@ if ($SearchStatus) {
     $outputText = $outputText + "&green Total update(s) available: 0`r`n"
   }
 } else {
-  $outputText = $outputText + "&yellow Update is unreachable after retries: $MSRetries`r`n"
+  $outputText = $outputText + "&yellow Update is unreachable after retries: $SearchRetries`r`n"
 }
 if ($criticalCount -gt 0) {
   Write-DebugLog "Red colour due to critical updates"
