@@ -2,7 +2,7 @@
 # Script written by someone else and modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
-# Version 0.2 / 27.10.2022 - Updated Script - Bonomani
+# Version 0.3 / 29.10.2022 - Updated Script - Bonomani
 ###############################################################################
 <#
 .SYNOPSIS
@@ -35,8 +35,10 @@ Experimental options (can be change withour notice)
 -ElevateNonAdmins [int]
 -From [string](wu:Windows Update, mu:Microsoft Update)
 -Version
+-DebugCache
 
 #>
+
 [CmdletBinding()]
 param(
   [Parameter()]
@@ -48,17 +50,33 @@ param(
   [string]$AutoInstallMinorUpdates,# Usually not exist by default = 1:AutoInstallMinorUpdates,    0:Disable AutoInstallMinorUpdates
   [string]$ElevateNonAdmins,#        Usually not exist by default = 1:ElevateNonAdmins            0;Disable ElevateNonAdmins
   [switch]$Version,
-  [switch]$CheckDefaultCompliance # Option above overwritte some default
+  [switch]$CheckDefaultCompliance,#  Option above overwritte some default
+  [switch]$DebugCache #              Force caching behaviour (only for testing purpose if started by console, as the cache is desactivated if the script is started manually)
 )
-$ScriptVersion = 0.2
 
-$CriticalLimit = 14 # Delay critical updates alarm for days
-$ModerateLimit = $CriticalLimit # Delay moderate updates alarm for days
-$OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
+$CriticalLimit = 14 #                Delay critical updates alarm for days
+$ModerateLimit = $CriticalLimit #    Delay moderate updates alarm for days
+$OtherLimit = 2 * $ModerateLimit #   Delay other updates alarm for days
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
+$cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
-$MSRetries = 1 # Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
-$debug = 0 # Write to logfile 
+$MSRetries = 1 #                     Windows update retries Timeout = 10min, Max time retries = $MSRetries X timeout
+$debug = 0 #                         Write to logfile 
+
+function Write-DebugLog {
+  param(
+    [string]$message,
+    [string]$filepath = $logFile
+  )
+  if ($debug) {
+    $datestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
+    Add-Content -Path $filepath -Value "$datestamp  $message"
+  }
+}
+
+$StartTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+Write-DebugLog "Starting"
+$ScriptVersion = 0.3
 
 function Test-RegistryValue {
   param(
@@ -182,14 +200,7 @@ function Set-Colour
   }
 }
 
-function Write-DebugLog {
-  param(
-    [string]$message,
-    [string]$filepath = $logFile
-  )
-  $datestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
-  if ($debug) { Add-Content -Path $filepath -Value "$datestamp  $message" }
-}
+
 
 if ($Version) {
   Write-Host $ScriptVersion
@@ -200,7 +211,6 @@ $dateCriticalLimit = (Get-Date).adddays(- $CriticalLimit)
 $dateModerateLimit = (Get-Date).adddays(- $ModerateLimit)
 $dateOtherLimit = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
-# Get OS: $osversionLookup[$osVersion]
 $os = Get-WmiObject Win32_OperatingSystem
 $osVersion = $os.version
 if (([version]$osVersion).Major -eq "10") { $osVersion = "$(([version]$osVersion).Major).$(([version]$osVersion).Minor).*" }
@@ -299,7 +309,7 @@ if ($CheckCompliance) {
   # Retrieve current values for comparison
   $compliantWinUpdateReg = $True
   if (([string]$regValueAUOptions -ne $AUOptions) -and -not (($regValueAUOptions -eq $null) -and ($AUOptions -eq ''))) {
-    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions`r`n"
+    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions"
     $compliantWinUpdateReg = $False
     if ($AUOptions -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
@@ -312,7 +322,7 @@ if ($CheckCompliance) {
 
   if (([string]$regValueNAU -ne $NoAutoUpdate) -and -not (($regValueNAU -eq $null) -and ($NoAutoUpdate -eq ''))) {
     $test = $NoAutoUpdate -eq $null
-    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU `r`n"
+    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU"
     $compliantWinUpdateReg = $False
     if ($NoAutoUpdate -eq $null) {
       $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (No key expected)`r`n"
@@ -350,91 +360,156 @@ if ($CheckCompliance) {
 
   }
 }
+# Use a cache to not bloat the system
+$cacheIsInvalid = $true
+if (Test-Path -Path $cachefile -PathType Leaf) {
+  Write-DebugLog "Process cache reading "
+  $scanCache = Get-Content $cachefile | ConvertFrom-Json
 
-Write-DebugLog "Creating update session"
-$updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
-Write-DebugLog "Creating update searcher"
-$UpdateSearcher = $updatesession.CreateUpdateSearcher()
-Write-DebugLog "Searching for updates"
-if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
-  #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' # Microsoft Update online
-  #$currentServiceID = ((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where {$_.IsDefaultAUService}).ServiceID # Current Service
-  #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'.ToUUID() 
-  if (-not [string]::IsNullOrEmpty($From)) {
-    if ($From -eq "mu") {
-      $ServiceName = "Microsoft Update"
-      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-      $UpdateSearcher.SearchScope = 1 # MachineOnly
-      $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
-    } elseif ($From -eq "wu") {
-      $ServiceName = "Windows Update"
-      $ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
-    } else {
-      # Fallback to Mirocoft Update
-      $ServiceName = "Microsoft Update"
-      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+  # Check Args
+  $ReferenceObject = $scanCache.Args
+  $DifferenceObject = $PsBoundParameters | ConvertTo-Json | ConvertFrom-Json
+  [array]$objprops = $ReferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
+  $objprops += $DifferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
+  $objprops = $objprops | Sort-Object | Select-Object -Unique
+  $diffs = @()
+  foreach ($objprop in $objprops) {
+    $diff = Compare-Object -ReferenceObject $ReferenceObject -DifferenceObject $DifferenceObject -Property $objprop
+    if ($diff) {
+      $diffprops = @{
+        PropertyName = $objprop
+        RefValue = ($diff | Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object $($objprop))
+        DiffValue = ($diff | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object $($objprop))
+      }
+      $diffs += New-Object -TypeName PSObject -Property $diffprops
     }
+  }
+
+
+  if ($diffs) { # Args change
+    foreach ($diff in $diffs) {
+      Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
+    }
+    $cacheIsInvalid = $true
+  } elseif ($scanCache.ParentProcessId -ne $PID.Parent.Id) { # Parent process changed (restarted)
+    Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
+    $cacheIsInvalid = $true
+  } elseif (($PID.Parent.Id -eq $null) -and (-not $DebugCache)) { # No parent process changed: direct command (but not in $DebugCache mode) 
+    Write-DebugLog "Cache invalidated as command start from console"
+    $cacheIsInvalid = $true
+  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
+    Write-DebugLog "Cache invalidated by Windows update changes"
+    $cacheIsInvalid = $true
+  } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $startDate) {
+    Write-DebugLog "Cache date to old $cachedate (max 11 h) "
+    $cacheIsInvalid = $true
   } else {
-    $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
-    $ServiceName = $DefaultAUService.Name
-    if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
-      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-      $UpdateSearcher.SearchScope = 1 # MachineOnly
-      $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
-    } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
-      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-    } else {
-      exit
-    }
+    $cacheIsInvalid = $false
   }
 }
-
-$MSSts = $false
-$MSCount = 0
-$MSStartTime = Get-Date
-do {
-  try {
-    $Criteria = "(IsInstalled=0 and DeploymentAction=*) or (IsPresent=1 and DeploymentAction='Uninstallation') or (IsInstalled=1 and DeploymentAction='Installation') and RebootRequired=1"
-    $searchresult = $updatesearcher.Search($Criteria)
-    $MSSts = $true
-  } catch {
+if ($cacheIsInvalid) {
+  # Cache is invalidated, process a normal search
+  Write-DebugLog "Creating update session"
+  $updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
+  Write-DebugLog "Creating update searcher"
+  $UpdateSearcher = $updatesession.CreateUpdateSearcher()
+  Write-DebugLog "Searching for updates"
+  if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
+    #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' # Microsoft Update online
+    #$currentServiceID = ((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where {$_.IsDefaultAUService}).ServiceID # Current Service
+    #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'.ToUUID() 
+    if (-not [string]::IsNullOrEmpty($From)) {
+      if ($From -eq "mu") {
+        $ServiceName = "Microsoft Update"
+        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+        $UpdateSearcher.SearchScope = 1 # MachineOnly
+        $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
+      } elseif ($From -eq "wu") {
+        $ServiceName = "Windows Update"
+        $ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
+      } else {
+        # Fallback to Mirocoft Update
+        $ServiceName = "Microsoft Update"
+        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+      }
+    } else {
+      $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
+      $ServiceName = $DefaultAUService.Name
+      if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
+        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+        $UpdateSearcher.SearchScope = 1 # MachineOnly
+        $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
+      } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
+        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+      } else {
+        exit
+      }
+    }
   }
-  $MSCount++
-} until ($MSSts -or $MSCount -eq $MSRetries)
-$MSTimeSpan = New-TimeSpan -Start $MSStartTime -End (Get-Date)
-$MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
 
-$Updates = if ($searchresult.Updates.Count -gt 0) {
-  #Updates are  waiting to be installed
-  #Cache the  count to make the For loop run faster
-  $count = $searchresult.Updates.Count
-  Write-DebugLog "$count updates have been found"
-  Write-DebugLog "Looping through updates to retrieve information"
-  for ($i = 0; $i -lt $Count; $i++) {
-    #Create object holding updates
-    $Update = $searchresult.Updates.Item($i)
-    [pscustomobject]@{
-      Title = $Update.Title
-      KB = $($Update.KBArticleIDs)
-      SecurityBulletin = $($Update.SecurityBulletinIDs)
-      MsrcSeverity = $Update.MsrcSeverity
-      IsInstalled = $Update.IsInstalled
-      IsDownloaded = $Update.IsDownloaded
-      IsHidden = $Update.IsHidden
-      RebootRequired = $Update.RebootRequired
-      Url = $Update.MoreInfoUrls
-      LastDeploymentChangeTime = $Update.LastDeploymentChangeTime
-      Categories = ($Update.Categories | Select-Object -ExpandProperty Name)
-      BundledUpdates = @($Update.BundledUpdates) | ForEach-Object {
-        [pscustomobject]@{
-          Title = $_.Title
-          DownloadUrl = @($_.DownloadContents).DownloadUrl
+  $MSSts = $false
+  $MSCount = 0
+
+  do {
+    try {
+      $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
+      $searchresult = $updatesearcher.Search($Criteria)
+      $MSSts = $true
+    } catch {
+    }
+    $MSCount++
+  } until ($MSSts -or $MSCount -eq $MSRetries)
+  $MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
+  $MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
+  $Updates = if ($searchresult.Updates.Count -gt 0) {
+    #Updates are  waiting to be installed
+    #Cache the count to make the For loop run faster
+    $count = $searchresult.Updates.Count
+    Write-DebugLog "$count updates have been found"
+    Write-DebugLog "Looping through updates to retrieve information"
+    for ($i = 0; $i -lt $Count; $i++) {
+      #Create object holding updates
+      $Update = $searchresult.Updates.Item($i)
+      [pscustomobject]@{
+        Title = $Update.Title
+        KB = $($Update.KBArticleIDs)
+        SecurityBulletin = $($Update.SecurityBulletinIDs)
+        MsrcSeverity = $Update.MsrcSeverity
+        IsBeta = $Update.IsBeta
+        IsDownloaded = $Update.IsDownloaded
+        IsHidden = $Update.IsHidden
+        IsInstalled = $Update.IsInstalled
+        IsMandatory = $Update.IsMandatory
+        IsPresent = $Update.IsPresent
+        RebootRequired = $Update.RebootRequired
+        IsUninstallable = $Update.IsUninstallable
+        Url = $Update.MoreInfoUrls
+        LastDeploymentChangeTime = $Update.LastDeploymentChangeTime
+        Categories = ($Update.Categories | Select-Object -ExpandProperty Name)
+        BundledUpdates = @($Update.BundledUpdates) | ForEach-Object {
+          [pscustomobject]@{
+            Title = $_.Title
+            DownloadUrl = @($_.DownloadContents).DownloadUrl
+          }
         }
       }
     }
   }
+  # Prepare the cache
+  $scan = [pscustomobject]@{
+    Args = $PsBoundParameters
+    ParentProcessId = $PID.Parent.Id
+    date = $StartTime
+    Update = $Updates
+  }
+  # Write the cache
+  ConvertTo-Json -Depth 4 -InputObject $scan | Out-File $cachefile
+} else {
+  #the cache is valid
+  Write-DebugLog "Cache Valid: skipping Windows Update Search"
+  $Updates = $scanCache.Update
+  $count = $Updates.Count
 }
-
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
   $criticalCount = 0
@@ -450,10 +525,16 @@ if ($count -gt 0) {
     $patchDate = $wUpdate.LastDeploymentChangeTime
     $patchAge = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
     $kb = $wUpdate.KB
-    $IsInstalled = $wUpdate.IsInstalled
-    $IsDownloaded = $wUpdate.IsDownloaded
-    $IsHidden = $wUpdate.IsHidden
-    $RebootRequired = $wUpdate.RebootRequired
+    $Status = ""
+    if ($wUpdate.IsBeta) { $Status += "B" } else { $status += "-" }
+    if ($wUpdate.IsDownloaded) { $Status += "D" } else { $status += "-" }
+    if ($wUpdate.IsHidden) { $Status += "H" } else { $status += "-" }
+    if ($wUpdate.IsInstalled) { $Status += "I" } else { $status += "-" }
+    if ($wUpdate.IsMandatory) { $Status += "M" } else { $status += "-" }
+    if ($wUpdate.IsPresent) { $Status += "P" } else { $status += "-" }
+    if ($wUpdate.RebootRequired) { $Status += "R" } else { $status += "-" }
+    if ($wUpdate.IsUninstallable) { $Status += "U" } else { $status += "-" }
+
     $title = $wUpdate.Title
     if ($Severity -eq "Critical" -and -not $IsHidden) {
       if ($patchDate -lt $dateCriticalLimit) {
@@ -462,7 +543,7 @@ if ($count -gt 0) {
         $colour = Set-Colour $colour "yellow"
       }
       $criticalCount = $criticalCount + 1
-      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$Downloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
+      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     } elseif ($Severity -eq "Moderate" -or $Severity -eq "Important" -and -not $IsHidden) {
       if ($patchDate -lt $dateModerateLimit) {
         $colour = Set-Colour $colour "yellow"
@@ -470,7 +551,7 @@ if ($count -gt 0) {
         $colour = Set-Colour $colour "green"
       }
       $moderateCount = $moderateCount + 1
-      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
+      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     } else {
       if ($patchDate -lt $dateOtherLimit) {
         $colour = Set-Colour $colour "yellow"
@@ -478,7 +559,7 @@ if ($count -gt 0) {
         $colour = Set-Colour $colour "green"
       }
       $otherCount = $otherCount + 1
-      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$IsInstalled</td><td>$IsDownloaded</td><td>$IsHidden</td><td>$RebootRequired</td><td>$Title</td></tr>`r`n"
+      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     }
   }
   if ($criticalCount -eq 0) {
@@ -495,9 +576,7 @@ if ($PendingReboot -or -not $MSsts -or -not $compliantWinUpdateReg) {
 
 Write-DebugLog "Get hostname"
 $fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
-Write-DebugLog "Get current date"
-$dateString = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$outputText = $outputText + "$colour+12h $dateString`r`n"
+$outputText = $outputText + "$colour+12h $startDate`r`n"
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText = $outputText + "Delay critical update alarms in [days]: $CriticalLimit`r`n"
 $outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLimit`r`n"
@@ -536,11 +615,12 @@ if ($count -gt 0) {
   Write-DebugLog "Updates have been detected so output contains updates listing"
   $outputText = $outputText + "<p>&nbsp;</p>`r`n"
   $outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
-  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Installed</th><th>Downloaded</th><th>Hidden</th><th>RebootRequired</th><th>Title</th></tr>`r`n"
+  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Status</th><th>Title</th></tr>`r`n"
   $outputText = $outputText + $criticalOutput
   $outputText = $outputText + $moderateOutput
   $outputText = $outputText + $otherOutput
   $outputText = $outputText + "</table>`r`n"
+  $outputText = $outputText + "Status=IsBeta,IsDownloaded,IsHidden,IsInstalled,IsMandatory,RebootRequired,IsUninstallable"
 }
 
 Write-DebugLog "Save contents into tmp file"
