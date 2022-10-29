@@ -5,6 +5,11 @@
 - A working procedure to have Xymon monitoring with the powershell client and a **Windows Updates extension script** 
 - Tested so far with Windows 2016, Windows 2019, Windows 10, Windows 11
 
+### Script "updates.ps1" v0.3
+- Improve reporting: a global "status"
+- Add a cache to speed-up things and logic
+- Bug in the search
+
 ### Script "updates.ps1" v0.2
 - Improve reporting (isInstalled) and criteria filtering
 - Use default repo (Microsoft vs Windows)
