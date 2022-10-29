@@ -384,8 +384,6 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
       $diffs += New-Object -TypeName PSObject -Property $diffprops
     }
   }
-
-
   if ($diffs) { # Args change
     foreach ($diff in $diffs) {
       Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
@@ -400,7 +398,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
-  } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $startDate) {
+  } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $StartTime) {
     Write-DebugLog "Cache date to old $cachedate (max 11 h) "
     $cacheIsInvalid = $true
   } else {
@@ -576,7 +574,7 @@ if ($PendingReboot -or -not $MSsts -or -not $compliantWinUpdateReg) {
 
 Write-DebugLog "Get hostname"
 $fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
-$outputText = $outputText + "$colour+12h $startDate`r`n"
+$outputText = $outputText + "$colour+12h $StartTime`r`n"
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText = $outputText + "Delay critical update alarms in [days]: $CriticalLimit`r`n"
 $outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLimit`r`n"
