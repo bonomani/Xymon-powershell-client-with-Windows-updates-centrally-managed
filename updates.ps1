@@ -200,8 +200,6 @@ function Set-Colour
   }
 }
 
-
-
 if ($Version) {
   Write-Host $ScriptVersion
   exit
@@ -357,7 +355,6 @@ if ($CheckCompliance) {
     } else {
       $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
     }
-
   }
 }
 # Use a cache to not bloat the system
@@ -389,7 +386,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
       Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
     }
     $cacheIsInvalid = $true
-  } elseif ($scanCache.ParentProcessId -ne $PID.Parent.Id) { # Parent process changed (restarted)
+  } elseif ($scanCache.ParentProcessId -ne (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID) { # Parent process changed (restarted)
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
     $cacheIsInvalid = $true
   } elseif (($PID.Parent.Id -eq $null) -and (-not $DebugCache)) { # No parent process changed: direct command (but not in $DebugCache mode) 
@@ -457,8 +454,6 @@ if ($cacheIsInvalid) {
     }
     $MSCount++
   } until ($MSSts -or $MSCount -eq $MSRetries)
-  $MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
-  $MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
   $Updates = if ($searchresult.Updates.Count -gt 0) {
     #Updates are  waiting to be installed
     #Cache the count to make the For loop run faster
@@ -496,7 +491,7 @@ if ($cacheIsInvalid) {
   # Prepare the cache
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
-    ParentProcessId = $PID.Parent.Id
+    ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
     date = $StartTime
     Update = $Updates
   }
@@ -505,9 +500,21 @@ if ($cacheIsInvalid) {
 } else {
   #the cache is valid
   Write-DebugLog "Cache Valid: skipping Windows Update Search"
+  # Take info from args
+  if ($From -eq "mu") {
+    $ServiceName = "Microsoft Update"
+  } elseif ($From -eq "wu") {
+    $ServiceName = "Windows Update"
+  } else {
+    # Fallback to Mirocoft Update
+    $ServiceName = "Microsoft Update"
+  }
+  # Take info from cache
   $Updates = $scanCache.Update
   $count = $Updates.Count
 }
+$MSTimeSpan = New-TimeSpan -Start $StartTime -End (Get-Date)
+$MSRunTime = $MSTimeSpan.ToString("hh':'mm':'ss")
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
   $criticalCount = 0
