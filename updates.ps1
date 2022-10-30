@@ -61,19 +61,21 @@ $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
 $SearchRetries = 0 #                 Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
 $debug = 0 #                         Write to logfile 
-
+$DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
+$DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
+$DateFormatHMSF = "HH:mm:ss:fff"
 function Write-DebugLog {
   param(
     [string]$message,
     [string]$filepath = $logFile
   )
   if ($debug) {
-    $datestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
+    $datestamp = Get-Date -Format $DateFormatYMDHMSF
     Add-Content -Path $filepath -Value "$datestamp  $message"
   }
 }
 
-$StartTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$StartTime = Get-Date
 Write-DebugLog "Starting"
 $ScriptVersion = 0.3
 
@@ -393,7 +395,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
-  } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $StartTime) {
+  } elseif ($scanCache.date.AddHours(11) -lt $StartTime) { Write-DebugLog "Cache date to old $cachedate (max 11 h) "
     Write-DebugLog "Cache date to old $cachedate (max 11 h) "
     $cacheIsInvalid = $true
   } else {
@@ -514,13 +516,14 @@ if ($cacheIsInvalid) {
   }
   # Take info from cache
   [array]$Updates = $scanCache.Update
-  $SearchOnlineSuccess = $scanCache.SearchOnlineSuccess
   $count = $Updates.Count
-  $SearchCacheSuccess = $true
-  [datetime]$SearchOnlineSuccessDate = $scanCache.SearchOnlineSuccessDate
+  $SearchOnlineSuccess = $scanCache.SearchOnlineSuccess
+  if ($SearchOnlineSuccess) {
+    [datetime]$SearchOnlineSuccessDate = $scanCache.SearchOnlineSuccessDate
+  }
 }
 
-$RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss':'fff")
+$RunTime = New-TimeSpan -Start $StartTime -End (Get-Date)
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
   $criticalCount = 0
@@ -587,16 +590,15 @@ if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg
 
 Write-DebugLog "Get hostname"
 $fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
-$outputText = $outputText + "$colour+12h $StartTime`r`n"
+$outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText = $outputText + "Delay critical update alarms in [days]: $CriticalLimit`r`n"
 $outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLimit`r`n"
 $outputText = $outputText + "Delay other update alarms [days]: $OtherLimit`r`n"
 $outputText = $outputText + "Update service: $ServiceName`r`n"
-$outputText = $outputText + "Updates searching time: $RunTime`r`n"
-
-$outputText = $outputText + "Last successfull self search:  $LastSearchSuccessDate`r`n"
-$outputText = $outputText + "Last successfull monitoring search:  $SearchOnlineSuccessDate`r`n"
+$outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
+$outputText = $outputText + "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+$outputText = $outputText + "Last successfull monitoring search: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
 
 if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
