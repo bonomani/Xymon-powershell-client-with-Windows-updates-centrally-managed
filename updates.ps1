@@ -514,7 +514,7 @@ if ($cacheIsInvalid) {
   }
   # Take info from cache
   [array]$Updates = $scanCache.Update
-  $SearchOnlineSucces = $scanCache.SearchOnlineSucces
+  $SearchOnlineSuccess = $scanCache.SearchOnlineSuccess
   $count = $Updates.Count
   $SearchCacheSuccess = $true
   [datetime]$SearchOnlineSuccessDate = $scanCache.SearchOnlineSuccessDate
