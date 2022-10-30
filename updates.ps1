@@ -359,6 +359,7 @@ if ($CheckCompliance) {
 # Use a cache to not bloat the system
 $cacheIsInvalid = $true
 $ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
+$LastSearchSuccessDate = (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
 if (Test-Path -Path $cachefile -PathType Leaf) {
   Write-DebugLog "Process cache reading "
   $scanCache = Get-Content $cachefile | ConvertFrom-Json
@@ -389,7 +390,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) { # Parent process changed (restarted)
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchOnlineSuccessDate) { #last Windows update search was perform
+  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
   } elseif (($cachedate = [datetime]::ParseExact($scanCache.date,"yyyy-MM-dd HH:mm:ss",$null).AddHours(11)) -lt $StartTime) {
@@ -450,7 +451,10 @@ if ($cacheIsInvalid) {
     } catch {
     }
     $SearchCount++
-  } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1) ))
+  } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1)))
+  if ($SearchOnlineSuccess) {
+    $SearchOnlineSuccessDate = $StartTime
+  }
   $Updates = if ($searchresult.Updates.Count -gt 0) {
     #Updates are  waiting to be installed
     #Cache the count to make the For loop run faster
@@ -491,7 +495,8 @@ if ($cacheIsInvalid) {
     ParentProcessId = $ParentProcessId
     date = $StartTime
     Update = $Updates
-    SearchOnlineSucces = $SearchOnlineSucces
+    SearchOnlineSuccess = $SearchOnlineSuccess
+    SearchOnlineSuccessDate = $SearchOnlineSuccessDate
   }
   # Write the cache
   ConvertTo-Json -Depth 4 -InputObject $scan | Out-File $cachefile
@@ -511,7 +516,8 @@ if ($cacheIsInvalid) {
   [array]$Updates = $scanCache.Update
   $SearchOnlineSucces = $scanCache.SearchOnlineSucces
   $count = $Updates.Count
-  $SearchCacheSucces = $true
+  $SearchCacheSuccess = $true
+  [datetime]$SearchOnlineSuccessDate = $scanCache.SearchOnlineSuccessDate
 }
 
 $RunTime = (New-TimeSpan -Start $StartTime -End (Get-Date)).ToString("hh':'mm':'ss':'fff")
@@ -588,6 +594,10 @@ $outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLi
 $outputText = $outputText + "Delay other update alarms [days]: $OtherLimit`r`n"
 $outputText = $outputText + "Update service: $ServiceName`r`n"
 $outputText = $outputText + "Updates searching time: $RunTime`r`n"
+
+$outputText = $outputText + "Last successfull self search:  $LastSearchSuccessDate`r`n"
+$outputText = $outputText + "Last successfull monitoring search:  $SearchOnlineSuccessDate`r`n"
+
 if ($CheckCompliance) {
   $outputText = $outputText + $compliantOutputText
 }
