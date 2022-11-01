@@ -1,5 +1,5 @@
 # Xymon powershell client with Windows updates centrally managed 
-![image](https://user-images.githubusercontent.com/8841264/196809858-d9535457-b7f6-4bf4-8e0d-b0550066b004.png)
+![image](https://user-images.githubusercontent.com/8841264/199197900-2a8db6f6-7bf9-4775-8dc1-aa721368b578.png)
 
 ## Content
 - A working procedure to have Xymon monitoring with the powershell client and a **Windows Updates extension script** 
