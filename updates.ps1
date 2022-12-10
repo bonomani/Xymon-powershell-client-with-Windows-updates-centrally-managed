@@ -435,7 +435,7 @@ if ($cacheIsInvalid) {
         $UpdateSearcher.SearchScope = 1 # MachineOnly
         $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
       } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
-        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+        $UpdateSearcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
       } else {
         exit
       }
