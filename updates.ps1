@@ -518,7 +518,7 @@ if ($cacheIsInvalid) {
   [array]$Updates = $scanCache.Update
   $count = $Updates.Count
   if ($count -eq 1) {
-    if ("" -eq $Updates) {
+    if ("" -eq $Updates[0]) {
       $count=0
     }
   }
