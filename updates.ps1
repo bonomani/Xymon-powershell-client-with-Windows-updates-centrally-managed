@@ -511,8 +511,9 @@ if ($cacheIsInvalid) {
   } elseif ($From -eq "wu") {
     $ServiceName = "Windows Update"
   } else {
-    # Fallback to Mirocoft Update
-    $ServiceName = "Microsoft Update"
+    # If not specified, take the current Config
+    $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
+    $ServiceName = $DefaultAUService.Name
   }
   # Take info from cache
   [array]$Updates = $scanCache.Update
