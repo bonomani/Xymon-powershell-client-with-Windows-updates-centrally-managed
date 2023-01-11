@@ -63,7 +63,8 @@ Remarks
             <clientremotecfgexec>1</clientremotecfgexec>
             <externalscriptlocation>c:\program files\xymon\ext</externalscriptlocation>
             <externaldatalocation>c:\program files\xymon\tmp</externaldatalocation>
-            <XymonAcceptUTF8>1</XymonAcceptUTF8> 
+            <XymonAcceptUTF8>1</XymonAcceptUTF8>
+            <clientbbwinmembug>0</clientbbwinmembug>
     </XymonSettings>
     ```
 
