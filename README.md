@@ -101,11 +101,11 @@ Configuration:
     wget https://raw.githubusercontent.com/bonomani/Xymon-powershell-client-with-Windows-updates-centrally-managed/main/updates.ps1
     md5sum ./updates.ps1
     ```
-- In etc/client-local.cfg
+- In etc/client-local.cfg: replace the hash with the md5 just done above
     ```
     [powershell]
     clientversion:2.42:https://x.x.x.x/xymon/download/ 
-    external:everyscan:async:bb://updates.ps1|MD5|016e2f3725f2571698a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
+    external:everyscan:async:bb://updates.ps1|MD5|016e2f3725f-hash-to_replace-a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
 - restart xymon
