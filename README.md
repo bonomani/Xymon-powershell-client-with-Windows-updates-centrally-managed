@@ -5,28 +5,6 @@
 - A working procedure to have Xymon monitoring with the powershell client and a **Windows Updates extension script** 
 - Tested so far with Windows 2016, Windows 2019, Windows 10, Windows 11
 
-### Script "updates.ps1" v0.3
-- Improve reporting: a global "status"
-- Add a cache to speed-up things and logic
-- Bug in the search
-
-### Script "updates.ps1" v0.2
-- Improve reporting (isInstalled) and criteria filtering
-- Use default repo (Microsoft vs Windows)
-- Improve reporting: Repo
-- Add delay for moderate and other logic
-- Detect Workstation VS Server and apply compliance logic (default for workstation; manual for server)
-- Resolve UTF8 problem (see ymonclient_config.xml) 
-
-### Script "updates.ps1" v0.1
-- Add "feature updates" for Windows 10
-- Improve reporting (isHidden, RebootRequired) with isHidden logic
-- Add a debug variable (default to 0: remove logging by default)
-- Add compliance check (against the registry) : Check the registry for Windows Update Keys (See examples in updates.ps1 at the top of the file)
-- Improve "Reboot pending" detection
-- Put all variables at the top of the file
-- Add a retry and a protect logic in case Windows Update is not available
-
 ## Prerequisit 1: The powershell client (agent)
 - https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/ 
 - Installed by following the doc: https://sourceforge.net/p/xymon/code/HEAD/tree/sandbox/WinPSClient/XymonPSClient.doc?format=raw (but you probably do not need it)
@@ -105,7 +83,7 @@ Configuration:
     ```
     [powershell]
     clientversion:2.42:https://x.x.x.x/xymon/download/ 
-    external:everyscan:async:bb://updates.ps1|MD5|016e2f3725f-hash-to_replace-a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
+    external:everyscan:async:bb://updates.ps1|MD5|016e2f3725f-hash-to-be-replaced-a85ebe267b3d83|powershell.exe|-executionpolicy remotesigned -file "{script}"
     xymonlogsend
     ```
 - restart xymon
@@ -114,7 +92,7 @@ Configuration:
     10.0.0.1              myserver.domain.tld                 # nopropyellow:updates nopropred:updates
     ```
 Remarks
-- In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I dont know if the rest is really working)
+- In etc/analysis.cfg. I did configured the LOAD to have something better than the default values! (I do not know if the LOG entries are really useful, see above)
 - In etc/client-local.cfg you need at least the [powershell] section (can be empty), otherwise the CLASS=powershell in etc/analysis.cfg seems not to work??? (The [powershell] section does not exist at all... so you will have to create it first! But it could/should exist as a default empty section in the client-local.cfg (Xymon Bug?)
 - the clientversion is not tested by me so far, but should do the equivalent as using the bb protocol but secured! (so this is the best option):  We should be able to replace "bb" by "https://x.x.x.x/xymon/download/": both option should be valid (even with http!) and this for the Xymon client itself and external scripts as their process are both managed by the Xymon client. The hash seems more optional than for external scripts as a change is managed by the version number (but I think it is a good idea to have it also)
 - The "external" line 
@@ -124,8 +102,8 @@ Remarks
 - Check if your MD5 is correct: md5sum ./updates.ps1 and adjust it in your etc/client-local.cfg!
 - Check the log file on your windows server "c:\program files\xymon\xymonclient.log", you should see that 
      - if the MD5 hash just changed in your etc/client-local.cfg (dont forget to restart xymon) the updates.ps1 script should be downloaded 
-- Updates are un UTF-8, so you have to use \<XymonAcceptUTF8\>1\</XymonAcceptUTF8\>
-     - Check what you receive at the xymon server side, in the folder that receive host's data: /var/lib/xymon/hostdata/ 
+- Updates are in UTF-8, so you have to use \<XymonAcceptUTF8\>1\</XymonAcceptUTF8\> (or you should modify the script: end of it)
+     - Check what you receive at the xymon server side in the folder that receive host's data: /var/lib/xymon/hostdata/ 
      - For Apache: Your webserver should also have UTF-8 configured, in /etc/apache2/conf-available/charset.conf uncomment:
           AddDefaultCharset UTF-8
 - Check that your Xymon client-local.cfg are still in ansi(ascii) and not in UTF-8: 
