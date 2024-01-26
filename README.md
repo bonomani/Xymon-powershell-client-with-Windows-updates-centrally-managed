@@ -126,9 +126,9 @@ Remarks
      - if the MD5 hash just changed in your etc/client-local.cfg (dont forget to restart xymon) the updates.ps1 script should be downloaded 
 - Updates are un UTF-8, so you have to use \<XymonAcceptUTF8\>1\</XymonAcceptUTF8\>
      - Check what you receive at the xymon server side, in the folder that receive host's data: /var/lib/xymon/hostdata/ 
-     - For Apache: Your webserver should also have UTF8 configured, in /etc/apache2/conf-available/charset.conf uncomment:
+     - For Apache: Your webserver should also have UTF-8 configured, in /etc/apache2/conf-available/charset.conf uncomment:
           AddDefaultCharset UTF-8
-- Check that your Xymon client-local.cfg are still in ansi(ascii) and not in UTF8: 
+- Check that your Xymon client-local.cfg are still in ansi(ascii) and not in UTF-8: 
     ```
     file -bi ./client-local.cfg
     ```  
