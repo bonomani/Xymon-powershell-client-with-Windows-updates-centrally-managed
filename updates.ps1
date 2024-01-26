@@ -643,7 +643,7 @@ if ($count -gt 0) {
   $outputText = $outputText + $moderateOutput
   $outputText = $outputText + $otherOutput
   $outputText = $outputText + "</table>`r`n"
-  $outputText = $outputText + "Status=IsBeta,IsDownloaded,IsHidden,IsInstalled,IsMandatory,RebootRequired,IsUninstallable"
+  $outputText = $outputText + "Status=IsBeta,IsDownloaded,IsHidden,IsInstalled,IsMandatory,IsPresent,RebootRequired,IsUninstallable"
 }
 
 Write-DebugLog "Save contents into tmp file"
