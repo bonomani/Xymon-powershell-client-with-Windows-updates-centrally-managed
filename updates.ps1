@@ -87,17 +87,19 @@ $DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
 $DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
 $DateFormatHMSF = 'HH:mm:ss:fff'
 
+# Function to write debug logs
 function Write-DebugLog {
-  param(
-    [string]$message,
-    [string]$filepath = $logFile
-  )
-  if ($debug) {
-    $datestamp = Get-Date -Format $DateFormatYMDHMSF
-    Add-Content -Path $filepath -Value "$datestamp  $message"
-  }
+    param(
+        [string]$message,
+        [string]$filepath = $logFile
+    )
+    if ($debug) {
+        $datestamp = Get-Date -Format $DateFormatYMDHMSF
+        Add-Content -Path $filepath -Value "$datestamp  $message"
+    }
 }
 
+# Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
 $ScriptVersion = 0.3
