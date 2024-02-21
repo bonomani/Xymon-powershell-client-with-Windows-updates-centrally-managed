@@ -7,36 +7,32 @@
 <#
 .SYNOPSIS
    This script reports Windows Updates
-
-. DESCRIPTION
-
+.DESCRIPTION
+   This script reports on Windows Updates and system compliance settings.
 .EXAMPLE
-In /etc/client-local.cfg you can use the "default config" (not implement experimental feature)
+   In /etc/client-local.cfg you can use the "default config" (not implement experimental feature)
+   [powershell]
+   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}"
 
-[powershell]
-external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}"
+   Experimental: detect Workstation or Server and check for compliance: 
+   - Workstation for "default" udpate registry settings 
+   - Server for "manual" update registry settings
 
-Experimental: detect Workstation or Server and check for compliance: 
-- Workstation for "default" udpate registry settings 
-- Server for "manual" update registry settings
+   [powershell]
+   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance
 
-[powershell]
-external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance
+   And you can override those settings with yours in the client
+   [powershell]
+   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates $null -ElevateNonAdmins $null
 
-And you can override those seeting with yours un the client
-[powershell]
-external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates $null -ElevateNonAdmins $null
-
-Experimental options (can be change withour notice)
--checkdefaultcompliance
--AUOptions [int]
--NoAutoUpdate [int]
--AutoInstallMinorUpdates [int]
--ElevateNonAdmins [int]
--From [string](wu:Windows Update, mu:Microsoft Update)
--Version
-
-
+   Experimental options (can be changed without notice)
+   -checkdefaultcompliance
+   -AUOptions [int]
+   -NoAutoUpdate [int]
+   -AutoInstallMinorUpdates [int]
+   -ElevateNonAdmins [int]
+   -From [string](wu:Windows Update, mu:Microsoft Update)
+   -Version
 #>
 
 [CmdletBinding()]
