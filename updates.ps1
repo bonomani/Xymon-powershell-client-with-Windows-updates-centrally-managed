@@ -71,9 +71,9 @@ param(
 )
 
 # Define Constants
-$CriticalLimit = 14
-$ModerateLimit = $CriticalLimit
-$OtherLimit = 2 * $ModerateLimit
+$CriticalLimit = 14              # Delay critical updates alarm for days
+$ModerateLimit = $CriticalLimit  # Delay moderate updates alarm for days
+$OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
@@ -81,8 +81,8 @@ $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
 
 # Other Settings
-$SearchRetries = 0
-$debug = $false
+$SearchRetries = 0               # Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
+$debug = $false                  # Write to logfile
 $DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
 $DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
 $DateFormatHMSF = 'HH:mm:ss:fff'
