@@ -41,17 +41,39 @@ Experimental options (can be change withour notice)
 
 [CmdletBinding()]
 param(
-  [Parameter()]
-  [AllowEmptyString()]
-  [string]$From,#mu=Microsoft Update, wu Windows Update
-  #                                                                 Default                       Recommended to Disable Auto Update         Do not download at all
-  [string]$AUOptions,#               Usually not exist by default = 3:Download and notify update, 3                                          2: Do not download
-  [string]$NoAutoUpdate,#            Usually not exist by default = 0:Autopdate,                  1:Disable autopdate
-  [string]$AutoInstallMinorUpdates,# Usually not exist by default = 1:AutoInstallMinorUpdates,    0:Disable AutoInstallMinorUpdates
-  [string]$ElevateNonAdmins,#        Usually not exist by default = 1:ElevateNonAdmins            0;Disable ElevateNonAdmins
-  [switch]$Version,
-  [switch]$CheckDefaultCompliance #  Option above overwritte some default
+    [Parameter()]
+    [AllowEmptyString()]
+    [string]$From, # Source of updates: mu=Microsoft Update, wu=Windows Update
+
+    # Automatic Update Behavior:
+    # Note: Key usually not present
+    # 3: Download and notify for update (Default)
+    # 2: To prevent automatic downloading of updates
+    # To disable auto-updates, set AUOptions to 3, NoAutoUpdate to 1, AutoInstallMinorUpdates to 0, and ElevateNonAdmins to 0.
+    [string]$AUOptions, 
+
+    # NoAutoUpdate controls whether auto-updates are enabled:
+    # Note: Key usually not present
+    # 0: Auto-update enabled (Default)
+    # 1: Auto-update disabled
+    [string]$NoAutoUpdate, 
+
+    # AutoInstallMinorUpdates controls the installation of minor updates:
+    # Note: Key usually not present
+    # 1: Enable AutoInstallMinorUpdates (Default)
+    # 0: Disable AutoInstallMinorUpdates
+    [string]$AutoInstallMinorUpdates, 
+
+    # ElevateNonAdmins controls whether non-admin users can receive update notifications:
+    # Note: Key usually not present
+    # 1: Enable ElevateNonAdmins (Default)
+    # 0: Disable ElevateNonAdmins
+    [string]$ElevateNonAdmins, 
+
+    [switch]$Version,
+    [switch]$CheckDefaultCompliance # Option above may overwrite some default settings
 )
+
 
 $CriticalLimit = 14 #                Delay critical updates alarm for days
 $ModerateLimit = $CriticalLimit #    Delay moderate updates alarm for days
