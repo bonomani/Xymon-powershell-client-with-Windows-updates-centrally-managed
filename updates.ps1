@@ -70,18 +70,23 @@ param(
     [switch]$CheckDefaultCompliance # Option above may overwrite some default settings
 )
 
+# Define Constants
+$CriticalLimit = 14
+$ModerateLimit = $CriticalLimit
+$OtherLimit = 2 * $ModerateLimit
 
-$CriticalLimit = 14 #                Delay critical updates alarm for days
-$ModerateLimit = $CriticalLimit #    Delay moderate updates alarm for days
-$OtherLimit = 2 * $ModerateLimit #   Delay other updates alarm for days
+# Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
-$SearchRetries = 0 #                 Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
-$debug = 0 #                         Write to logfile 
+
+# Other Settings
+$SearchRetries = 0
+$debug = $false
 $DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
 $DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
-$DateFormatHMSF = "HH:mm:ss:fff"
+$DateFormatHMSF = 'HH:mm:ss:fff'
+
 function Write-DebugLog {
   param(
     [string]$message,
