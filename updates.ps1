@@ -1,73 +1,54 @@
 ###############################################################################
-# Script written by someone else and modified by Kris Springer, Bonomani
+# Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
-# Version 0.3 / 29.10.2022 - Updated Script - Bonomani
+# Version 0.5 / 2025-12-04 - Compliance check with default "Download" if omitted
 ###############################################################################
 <#
 .SYNOPSIS
-   This script reports Windows Updates
+   Reports Windows Updates and compliance.
+
 .DESCRIPTION
-   This script reports on Windows Updates and system compliance settings.
+   Checks registry values for Windows Update against simplified SCONFIG profiles
+   (Disabled, Manual, Notify, Download).
+   - If -CheckSConfig is omitted → validate against default "Download".
+   - If -CheckSConfig is provided → validate against that explicit profile.
+
 .EXAMPLE
-   In /etc/client-local.cfg you can use the "default config" (not implement experimental feature)
-   [powershell]
-   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}"
+   Check compliance against default "Download" profile:
+   powershell.exe -executionpolicy remotesigned -file "{script}"
 
-   Experimental: detect Workstation or Server and check for compliance: 
-   - Workstation for "default" udpate registry settings 
-   - Server for "manual" update registry settings
+.EXAMPLE
+   Check compliance against explicit profile:
+   powershell.exe -executionpolicy remotesigned -file "{script}" -CheckSConfig Manual
 
-   [powershell]
-   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance
+.PARAMETER AUOptions
+   Automatic Update behavior (normally absent unless configured):
+   - 1: Manual
+   - 2: Notify before download
+   - 3: Download, notify before install (default)
 
-   And you can override those settings with yours in the client
-   [powershell]
-   external:slowscan:async:bb://updates.ps1|MD5|69df8284b1448bb56d0d71fb957af4e4|powershell.exe|-executionpolicy remotesigned -file "{script}" -checkdefaultcompliance -NoAutoUpdate 1 -AutoInstallMinorUpdates $null -ElevateNonAdmins $null
+.PARAMETER NoAutoUpdate
+   0 or absent: Enabled (Default)
+   1: Disabled
 
-   Experimental options (can be changed without notice)
-   -checkdefaultcompliance
-   -AUOptions [int]
-   -NoAutoUpdate [int]
-   -AutoInstallMinorUpdates [int]
-   -ElevateNonAdmins [int]
-   -From [string](wu:Windows Update, mu:Microsoft Update)
-   -Version
+.PARAMETER CheckSConfig
+   If omitted → Use "Download".
+   If provided → Validate against this profile (Disabled, Manual, Notify, Download).
+
+.PARAMETER Version
+   Shows script version.
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [AllowEmptyString()]
-    [string]$From, # Source of updates: mu=Microsoft Update, wu=Windows Update
+    [ValidateSet("Disabled","Manual","Notify","Download","AutoAdmin")]
+    [string]$CheckSConfig,
 
-    # Automatic Update Behavior:
-    # Note: Key usually not present
-    # 3: Download and notify for update (Default)
-    # 2: To prevent automatic downloading of updates
-    # To disable auto-updates, set AUOptions to 3, NoAutoUpdate to 1, AutoInstallMinorUpdates to 0, and ElevateNonAdmins to 0.
-    [string]$AUOptions, 
+    [string]$AUOptions,
+    [string]$NoAutoUpdate,
 
-    # NoAutoUpdate controls whether auto-updates are enabled:
-    # Note: Key usually not present
-    # 0: Auto-update enabled (Default)
-    # 1: Auto-update disabled
-    [string]$NoAutoUpdate, 
-
-    # AutoInstallMinorUpdates controls the installation of minor updates:
-    # Note: Key usually not present
-    # 1: Enable AutoInstallMinorUpdates (Default)
-    # 0: Disable AutoInstallMinorUpdates
-    [string]$AutoInstallMinorUpdates, 
-
-    # ElevateNonAdmins controls whether non-admin users can receive update notifications:
-    # Note: Key usually not present
-    # 1: Enable ElevateNonAdmins (Default)
-    # 0: Disable ElevateNonAdmins
-    [string]$ElevateNonAdmins, 
-
-    [switch]$Version,
-    [switch]$CheckDefaultCompliance # Option above may overwrite some default settings
+    [switch]$Version
 )
 
 # Define Constants
@@ -102,7 +83,7 @@ function Write-DebugLog {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 0.3
+$ScriptVersion = 0.5
 
 function Test-RegistryValue {
   param(
@@ -117,95 +98,67 @@ function Test-RegistryValue {
   }
 }
 
-function Test-PendingReboot
-<#
-.SYNOPSIS
-    This function checks diffrent Registry Keys and Values do determine if a Reboot is pending.
-
-.DESCRIPTION
-    Based on previous work by Kris Springer
-    Based on the work of Andres Bohren https://blog.icewolf.ch/archive/2020/07/03/check-for-pending-reboot-with-powershell.aspx
-    He found a Table on the Internet and decided to Write a Powershell Script to check if a Reboot is pending.
-    Not all Keys are checked. But feel free to extend the Script.
-
- https://adamtheautomator.com/pending-reboot-registry-windows/
- KEY VALUE CONDITION
- HKLM:\SOFTWARE\Microsoft\Updates UpdateExeVolatile Value is anything other than 0
- HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager PendingFileRenameOperations value exists
- HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager PendingFileRenameOperations2 value exists
- HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired NA key exists
- HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Services\Pending NA Any GUID subkeys exist
- HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting NA key exists
- HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce DVDRebootSignal value exists
- HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending NA key exists
- HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress NA key exists
- HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\PackagesPending NA key exists
- HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts NA key exists
- HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon JoinDomain value exists
- HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon AvoidSpnSet value exists
- HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName ComputerName Value ComputerName in HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName is different
-#>
-{
+function Test-PendingReboot {
   [bool]$PendingReboot = $false
-  #Check for Keys
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+  $RebootReasons = @()
+
+  if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") {
+    $RebootReasons += "Windows Update requires reboot"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting"
+  if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\PostRebootReporting") {
+    $RebootReasons += "Windows Update PostRebootReporting key exists"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+  if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") {
+    $RebootReasons += "CBS servicing reports RebootPending"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"
+  if (Test-Path "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts") {
+    $RebootReasons += "Server Manager has pending reboot attempts"
     $PendingReboot = $true
   }
-  if ((Test-Path -Path "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\ServerManager\CurrentRebootAttempts"
+  if (Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "RebootInProgress") {
+    $RebootReasons += "CBS reports RebootInProgress"
     $PendingReboot = $true
   }
-  #Check for Values
-  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "RebootInProgress") -eq $true) {
-    Write-DebugLog "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing > RebootInProgress"
+  if (Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "PackagesPending") {
+    $RebootReasons += "CBS has PackagesPending"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing" -Value "PackagesPending") -eq $true) {
-    Write-DebugLog "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing > PackagesPending"
+  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations") {
+    $RebootReasons += "PendingFileRenameOperations exist"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations") -eq $true) {
-    Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager > PendingFileRenameOperations"
+  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations2") {
+    $RebootReasons += "PendingFileRenameOperations2 exist"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations2") -eq $true) {
-    Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager > PendingFileRenameOperations2"
+  if (Test-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Value "DVDRebootSignal") {
+    $RebootReasons += "RunOnce DVDRebootSignal exists"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Value "DVDRebootSignal") -eq $true) {
-    Write-DebugLog "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce > DVDRebootSignal"
+  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "JoinDomain") {
+    $RebootReasons += "Netlogon join domain requires reboot"
     $PendingReboot = $true
   }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "JoinDomain") -eq $true) {
-    Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon > JoinDomain"
-    $PendingReboot = $true
-  }
-  if ((Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "AvoidSpnSet") -eq $true) {
-    Write-DebugLog "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon > AvoidSpnSet"
+  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon" -Value "AvoidSpnSet") {
+    $RebootReasons += "Netlogon AvoidSpnSet requires reboot"
     $PendingReboot = $true
   }
   try {
     $util = [wmiclass]"\\.\root\ccm\clientsdk:CCM_ClientUtilities"
     $status = $util.DetermineIfRebootPending()
     if (($status -ne $null) -and $status.RebootPending) {
-      Write-DebugLog "\\.\root\ccm\clientsdk:CCM_ClientUtilities"
+      $RebootReasons += "ConfigMgr reports pending reboot"
       $PendingReboot = $true
     }
   } catch {}
-  return $PendingReboot
+
+  return [pscustomobject]@{
+    Pending = $PendingReboot
+    Reasons = $RebootReasons
+  }
 }
 
 ## This section controls the reporting colors.
@@ -226,6 +179,30 @@ function Set-Colour
   }
 }
 
+function Get-UpdateSeverity {
+    param(
+        [Parameter(Mandatory=$true)]
+        $Update
+    )
+
+    $cats = @($Update.Categories)
+
+    if ($cats -contains "Critical Updates") {
+        return "Critical"
+    }
+    elseif ($cats -contains "Security Updates" -or
+            $cats -contains "Definition Updates" -or
+            $cats -contains "Windows Security Platform" -or
+            $cats -contains "Security Intelligence Update" -or
+            $cats -contains "Windows Defender Antivirus" -or
+            $cats -contains "Antimalware Client") {
+        return "Moderate"
+    }
+    else {
+        return "Other"
+    }
+}
+
 if ($Version) {
   Write-Host $ScriptVersion
   exit
@@ -241,152 +218,104 @@ if (([version]$osVersion).Major -eq "10") { $osVersion = "$(([version]$osVersion
 $osversionLookup = @{ "5.1.2600" = "XP"; "5.1.3790" = "2003"; "6.0.6001" = "Vista/2008"; "6.1.7600" = "Win7/2008R2"; "6.1.7601" = "Win7 SP1/2008R2 SP1"; "6.2.9200" = "Win8/2012"; "6.3.9600" = "Win8.1/2012R2"; "10.0.*" = "Windows 10/Server 2016" };
 
 Write-DebugLog "Searching for PendingReboot"
-$PendingReboot = Test-PendingReboot
-$CheckCompliance = $CheckDefaultCompliance -or -not [string]::IsNullOrEmpty($AUOptions) -or -not [string]::IsNullOrEmpty($NoAutoUpdate) -or -not [string]::IsNullOrEmpty($AutoInstallMinorUpdates) -or -not [string]::IsNullOrEmpty($ElevateNonAdmins)
+#$PendingReboot = Test-PendingReboot
+$result = Test-PendingReboot
+$PendingReboot = $result.Pending
 
-# Check Compliance Set default
-if ($CheckCompliance) {
-  # SET DEFAULT AND GATHERS ALL DATA
-  $regPathAU = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU'
-  $regPathWindowsUpdate = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate'
-  $regPropertyAUOptions = 'AUOptions'
-  $regPropertyNAU = 'NoAutoUpdate'
-  $regPropertyAIMU = 'AutoInstallMinorUpdates'
-  $regPropertyENA = 'ElevateNonAdmins'
-  $regAU = Get-ItemProperty -Path $regPathAU -ErrorAction SilentlyContinue
-  $regWindowsUpdate = Get-ItemProperty -Path $regPathWindowsUpdate -ErrorAction SilentlyContinue
-  $regValueAUOptions = $regAU.$regPropertyAUOptions
-  $regValueNAU = $regAU.$regPropertyNAU
-  $regValueAIMU = $regAU.$regPropertyAIMU
-  $regValueAIMU = $regAU.$regPropertyAIMU
-  $regValueENA = $regWindowsUpdate.$regPropertyENA
-  if ($CheckDefaultCompliance) {
-    if ((Get-WmiObject -Class Win32_OperatingSystem).ProductType -eq 1) { #Workstation: Use default 
-      $defaultUProfile = "Workstation"
-      $defaultAUOptions = $null # 3 if defaultNoAutoUpdate<>1 
-      $defaultNoAutoUpdate = $null #0
-      $defaultAutoInstallMinorUpdates = $null #1
-      $defaultElevateNonAdmins = $null # 1
-    } else { #Server:  default to "Manual"
-      $defaultUProfile = "Server"
-      $defaultAUOptions = 1
-      $defaultNoAutoUpdate = 1
-      $defaultAutoInstallMinorUpdates = 0
-      $defaultElevateNonAdmins = 0
-    }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyAUOptions)) {
-      $AUOptions = $defaultAUOptions
-    } else {
-      if ($AUOptions -eq '$null') {
-        $AUOptions = $null
-      }
-    }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyNAU)) {
-      $NoAutoUpdate = $defaultNoAutoUpdate
-    } else {
-      if ($NoAutoUpdate -eq '$null') {
-        $NoAutoUpdate = $null
-      }
-    }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyAIMU)) {
-      $AutoInstallMinorUpdates = $defaultAutoInstallMinorUpdates
-    } else {
-      if ($AutoInstallMinorUpdates -eq '$null') {
-        $AutoInstallMinorUpdates = $null
-      }
-    }
-    if (-not $PSBoundParameters.ContainsKey($regPropertyENA)) {
-      $ElevateNonAdmins = $defaultElevateNonAdmins
-    } else {
-      if ($ElevateNonAdmins -eq '$null') {
-        $ElevateNonAdmins = $null
-      }
-    }
-  }
-  Write-DebugLog "Searching for windows update registry compliance"
-  # Check registry key/value for windows update
+Write-DebugLog "Searching for Windows Update registry compliance"
 
-  $compliantOutputText = ""
-  $sconfigUpdate = $null
-  # TRANSLATES REGISTRY FOR WINDOWS UPDATE TO USER FRIENDLY OUTPUT: SCONFIG like
-  if ($regValueNAU -eq 1) {
-    if (($regValueAUOptions -eq $null) -or ($regValueAUOptions -eq 1)) {
-      $sconfigUpdate = "Manual"
+# ==============================
+# Helper: Detect SCONFIG name
+# ==============================
+function Get-SconfigName {
+    param($AUOptions, $NoAutoUpdate)
 
-    }
-  } elseif (($regValueNAU -eq $null) -or ($regValueNAU -eq 0)) {
-    switch ($regValueAUOptions) {
-      $null { $sconfigUpdate = "Download"; break }
-      1 { $sconfigUpdate = "Manual"; break }
-      2 { $sconfigUpdate = "Notify before downloading (AUOptions=2)"; break }
-      3 { $sconfigUpdate = "Download"; break }
-      4 { $sconfigUpdate = "Automatic"; break }
-    }
-  }
-  if ($sconfigUpdate -eq $null) {
-    $compliantOutputText = $compliantOutputText + "&yellow Compliance SCONFIG profil: Invalid (Incompatibility between AUOptions=$regValueAUOptions and NoAutoUpdate=$regValueNAU)`r`n"
-  } else {
-    $compliantOutputText = $compliantOutputText + "&green Compliance SCONFIG profile: $sconfigUpdate`r`n"
-  }
-  $compliantOutputText = $compliantOutputText + "Checking compatibility with profile for: $defaultUProfile`r`n"
-
-  # Retrieve current values for comparison
-  $compliantWinUpdateReg = $True
-  if (([string]$regValueAUOptions -ne $AUOptions) -and -not (($regValueAUOptions -eq $null) -and ($AUOptions -eq ''))) {
-    Write-DebugLog "Not compliant AUOptions: $regValueAUOptions"
-    $compliantWinUpdateReg = $False
-    if ($AUOptions -eq $null) {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (No key expected)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions (expected: $AUOptions)`r`n"
-    }
-  } else {
-    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAUOptions : $regValueAUOptions`r`n"
-  }
-
-  if (([string]$regValueNAU -ne $NoAutoUpdate) -and -not (($regValueNAU -eq $null) -and ($NoAutoUpdate -eq ''))) {
-    $test = $NoAutoUpdate -eq $null
-    Write-DebugLog "Not compliant NoAutoUpdate: $regValueNAU"
-    $compliantWinUpdateReg = $False
-    if ($NoAutoUpdate -eq $null) {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (No key expected)`r`n"
-    } else {
-      $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyNAU : $regValueNAU (expected: $NoAutoUpdate)`r`n"
-    }
-  } else {
-    Write-DebugLog "1: $regValueNAU 2:$NoAutoUpdate"
-    $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyNAU : $regValueNAU`r`n"
-  }
-  if ($osversionLookup[$osVersion] -ne "Windows 10/Server 2016") { # Dirty Remove defer feature
-    if (([string]$regValueAIMU -ne $AutoInstallMinorUpdates) -and -not (($regValueAIMU -eq $null) -and ($AutoInstallMinorUpdates -eq ''))) {
-      Write-DebugLog "Not compliant AutoInstallMinorUpdates: $regValueAIMU"
-      $compliantWinUpdateReg = $False
-      if ($AutoInstallMinorUpdates -eq $null) {
-        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (No key expected)`r`n"
-      } else {
-        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU (expected: $AutoInstallMinorUpdates)`r`n"
-      }
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathAU\$regPropertyAIMU : $regValueAIMU`r`n"
+    if ($NoAutoUpdate -eq 1) {
+        return "Disabled"
     }
 
-    if (([string]$regValueENA -ne $ElevateNonAdmins) -and -not (($regValueENA -eq $null) -and ($ElevateNonAdmins -eq ''))) {
-      Write-DebugLog "Not compliant ElevateNonAdmins: $regValueENA"
-      $compliantWinUpdateReg = $False
-      if ($ElevateNonAdmins -eq $null) {
-        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (No key expected)`)`r`n"
-      } else {
-        $compliantOutputText = $compliantOutputText + "&yellow Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA (expected: $ElevateNonAdmins)`r`n"
-      }
-    } else {
-      $compliantOutputText = $compliantOutputText + "&green Compliance $regPathWindowsUpdate\$regPropertyENA : $regValueENA`r`n"
+    switch ($AUOptions) {
+        1     { return "Manual" }
+        2     { return "Notify" }
+        3     { return "Download" }
+        4     { return "Automatic" }
+        7     { return "AutoAdmin" }
+        $null { return "Download" } # default if AUOptions missing
     }
-  }
+    return $null
 }
+
+# ==============================
+# Compliance Check
+# ==============================
+$regPathAU = 'HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU'
+$regAU     = Get-ItemProperty -Path $regPathAU -ErrorAction SilentlyContinue
+
+# Raw values from registry
+$rawAUOptions = if ($null -ne $regAU) { $regAU.AUOptions } else { $null }
+$rawNAU       = if ($null -ne $regAU) { $regAU.NoAutoUpdate } else { $null }
+
+# Normalize registry values
+# - AUOptions absent → default to 3 (Download)
+# - NoAutoUpdate absent → default to 0 (Enabled)
+$regValueAUOptions = if ($null -ne $rawAUOptions) { $rawAUOptions } else { 3 }
+$regValueNAU       = if ($null -ne $rawNAU)       { $rawNAU }       else { 0 }
+
+# Current profile name
+$currentName = Get-SconfigName $rawAUOptions $rawNAU
+
+# Expected profile (default = Download, or user override with -CheckSConfig)
+$expectedProfile = if ($PSBoundParameters.ContainsKey("CheckSConfig")) { $CheckSConfig } else { "Download" }
+
+# Compliance check
+$compliant = ($currentName -eq $expectedProfile)
+
+# One clean summary line with color
+if ($compliant) {
+    $compliantOutputText = "&green Compliance SCONFIG: expected=$expectedProfile, detected=$currentName, compliant=True`r`n"
+} else {
+    $compliantOutputText = "&red Compliance SCONFIG: expected=$expectedProfile, detected=$currentName, compliant=False`r`n"
+}
+
+# Build expected values
+$expectedProfiles = @{
+    # Disabled ignores AUOptions → accept any (null,1,2,3,4,7)
+    "Disabled"  = @{ AUOptions=@($null,1,2,3,4,7); NoAutoUpdate=1 }
+    "Manual"    = @{ AUOptions=1; NoAutoUpdate=0 }
+    "Notify"    = @{ AUOptions=2; NoAutoUpdate=0 }
+    "Download"  = @{ AUOptions=3; NoAutoUpdate=0 }
+    "Automatic" = @{ AUOptions=4; NoAutoUpdate=0 }
+    "AutoAdmin" = @{ AUOptions=7; NoAutoUpdate=0 }
+}
+
+$exp = $expectedProfiles[$expectedProfile]
+
+function Format-Value {
+    param($name, $current, $expected)
+    if ($expected -is [array]) { $expectedText = ($expected -join "|") } else { $expectedText = $expected }
+    $match = ($expected -is [array] -and $expected -contains $current) -or ($expected -eq $current)
+    $color = if ($match) { "&green" } else { "&red" }
+    return $color+" "+$name+": "+$current+"/"+$expectedText
+}
+
+$compliantOutputText += "   Regs: " + (
+    (Format-Value "AUOptions"    $regValueAUOptions $exp.AUOptions),
+    (Format-Value "NoAutoUpdate" $regValueNAU       $exp.NoAutoUpdate)
+) -join ", "
+$compliantOutputText += "`r`n"
+
+# Final compliance flag
+$compliantWinUpdateReg = $compliant
 # Use a cache to not bloat the system
 $cacheIsInvalid = $true
 $ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
 $LastSearchSuccessDate = (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
+
+# Récupérer le service par défaut une seule fois
+$DefaultAUService = (New-Object -ComObject "Microsoft.Update.ServiceManager").Services |
+    Where-Object { $_.IsDefaultAUService } |
+    Select-Object ServiceID, Name
+
 if (Test-Path -Path $cachefile -PathType Leaf) {
   Write-DebugLog "Process cache reading "
   $scanCache = Get-Content $cachefile | ConvertFrom-Json
@@ -409,61 +338,41 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
       $diffs += New-Object -TypeName PSObject -Property $diffprops
     }
   }
-  if ($diffs) { # Args change
+  if ($diffs) {
     foreach ($diff in $diffs) {
       Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
     }
     $cacheIsInvalid = $true
-  } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) { # Parent process changed (restarted)
+  } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) {
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) { #last Windows update search was perform
+  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) {
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date.AddHours(11) -lt $StartTime) { Write-DebugLog "Cache date to old $cachedate (max 11 h) "
-    Write-DebugLog "Cache date to old $cachedate (max 11 h) "
+  } elseif ($scanCache.date.AddHours(11) -lt $StartTime) {
+    Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
     $cacheIsInvalid = $true
   } else {
     $cacheIsInvalid = $false
   }
 }
+
 if ($cacheIsInvalid) {
-  # Cache is invalidated, process a normal search
   Write-DebugLog "Creating update session"
   $updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
   Write-DebugLog "Creating update searcher"
   $UpdateSearcher = $updatesession.CreateUpdateSearcher()
   Write-DebugLog "Searching for updates"
+
   if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
-    #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d' # Microsoft Update online
-    #$currentServiceID = ((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where {$_.IsDefaultAUService}).ServiceID # Current Service
-    #$UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'.ToUUID() 
-    if (-not [string]::IsNullOrEmpty($From)) {
-      if ($From -eq "mu") {
-        $ServiceName = "Microsoft Update"
-        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-        $UpdateSearcher.SearchScope = 1 # MachineOnly
-        $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
-      } elseif ($From -eq "wu") {
-        $ServiceName = "Windows Update"
-        $ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
-      } else {
-        # Fallback to Mirocoft Update
-        $ServiceName = "Microsoft Update"
-        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-      }
+    if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
+      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
+      $UpdateSearcher.SearchScope = 1
+      $UpdateSearcher.ServerSelection = 3
+    } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
+      $UpdateSearcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
     } else {
-      $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
-      $ServiceName = $DefaultAUService.Name
-      if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
-        $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-        $UpdateSearcher.SearchScope = 1 # MachineOnly
-        $UpdateSearcher.ServerSelection = 3 # Windows Update (2) Microsoft Update (3)
-      } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
-        $UpdateSearcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
-      } else {
-        exit
-      }
+      exit
     }
   }
 
@@ -475,27 +384,24 @@ if ($cacheIsInvalid) {
       $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
       $searchresult = $updatesearcher.Search($Criteria)
       $SearchOnlineSuccess = $true
-    } catch {
-    }
+    } catch {}
     $SearchCount++
   } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1)))
+
   if ($SearchOnlineSuccess) {
     $SearchOnlineSuccessDate = $StartTime
   }
+
   $Updates = if ($searchresult.Updates.Count -gt 0) {
-    #Updates are  waiting to be installed
-    #Cache the count to make the For loop run faster
     $count = $searchresult.Updates.Count
     Write-DebugLog "$count updates have been found"
     Write-DebugLog "Looping through updates to retrieve information"
     for ($i = 0; $i -lt $Count; $i++) {
-      #Create object holding updates
       $Update = $searchresult.Updates.Item($i)
       [pscustomobject]@{
         Title = $Update.Title
         KB = $($Update.KBArticleIDs)
-        SecurityBulletin = $($Update.SecurityBulletinIDs)
-        MsrcSeverity = $Update.MsrcSeverity
+        Severity = Get-UpdateSeverity -Update $Update
         IsBeta = $Update.IsBeta
         IsDownloaded = $Update.IsDownloaded
         IsHidden = $Update.IsHidden
@@ -516,7 +422,7 @@ if ($cacheIsInvalid) {
       }
     }
   }
-  # Prepare the cache
+
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
     ParentProcessId = $ParentProcessId
@@ -525,22 +431,11 @@ if ($cacheIsInvalid) {
     SearchOnlineSuccess = $SearchOnlineSuccess
     SearchOnlineSuccessDate = $SearchOnlineSuccessDate
   }
-  # Write the cache
+
   ConvertTo-Json -Depth 4 -InputObject $scan | Out-File $cachefile
 } else {
-  #the cache is valid
   Write-DebugLog "Cache Valid: skipping Windows Update Search"
-  # Take info from args
-  if ($From -eq "mu") {
-    $ServiceName = "Microsoft Update"
-  } elseif ($From -eq "wu") {
-    $ServiceName = "Windows Update"
-  } else {
-    # If not specified, take the current Config
-    $DefaultAUService = (((New-Object -ComObject "Microsoft.Update.ServiceManager").Services | Where-Object { $_.IsDefaultAUService })) | Select-Object ServiceID,Name
-    $ServiceName = $DefaultAUService.Name
-  }
-  # Take info from cache
+
   [array]$Updates = $scanCache.Update
   $count = $Updates.Count
   if ($count -eq 1) {
@@ -557,20 +452,23 @@ if ($cacheIsInvalid) {
 $RunTime = New-TimeSpan -Start $StartTime -End (Get-Date)
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
-  $criticalCount = 0
-  $criticalOutput = ""
-  $moderateCount = 0
-  $moderateOutput = ""
-  $otherCount = 0
-  $otherOutput = ""
+
+  # Init counters and outputs
+  $criticalCount = 0; $criticalOverdue = 0; $criticalRecent = 0; $criticalOutput = ""
+  $moderateCount = 0; $moderateOverdue = 0; $moderateRecent = 0; $moderateOutput = ""
+  $otherCount = 0; $otherOverdue = 0; $otherRecent = 0; $otherOutput = ""
   $colour = "green"
+
   foreach ($wUpdate in $Updates) {
-    $severity = $wUpdate.MsrcSeverity
-    $bulletin = $wUpdate.SecurityBulletin
+    $severity  = Get-UpdateSeverity -Update $wUpdate
     $patchDate = $wUpdate.LastDeploymentChangeTime
-    $patchAge = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
-    $kb = $wUpdate.KB
-    $Status = ""
+    $patchAge  = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
+    $kb        = $wUpdate.KB
+    $title     = $wUpdate.Title
+    $isHidden  = $wUpdate.IsHidden
+
+    # Build status flags
+    $Status  = ""
     if ($wUpdate.IsBeta) { $Status += "B" } else { $status += "-" }
     if ($wUpdate.IsDownloaded) { $Status += "D" } else { $status += "-" }
     if ($wUpdate.IsHidden) { $Status += "H" } else { $status += "-" }
@@ -580,37 +478,47 @@ if ($count -gt 0) {
     if ($wUpdate.RebootRequired) { $Status += "R" } else { $status += "-" }
     if ($wUpdate.IsUninstallable) { $Status += "U" } else { $status += "-" }
 
-    $title = $wUpdate.Title
-    if ($Severity -eq "Critical" -and -not $IsHidden) {
+    # Classify
+    if ($severity -eq "Critical" -and -not $isHidden) {
+      $criticalCount++
       if ($patchDate -lt $dateCriticalLimit) {
+        $criticalOverdue++
         $colour = Set-Colour $colour "red"
       } else {
+        $criticalRecent++
         $colour = Set-Colour $colour "yellow"
       }
-      $criticalCount = $criticalCount + 1
-      $criticalOutput = $criticalOutput + "<tr><td style=`"colour:red;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
-    } elseif ($Severity -eq "Moderate" -or $Severity -eq "Important" -and -not $IsHidden) {
+      $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+
+    } elseif (($severity -eq "Moderate" -or $severity -eq "Important") -and -not $isHidden) {
+      $moderateCount++
       if ($patchDate -lt $dateModerateLimit) {
+        $moderateOverdue++
         $colour = Set-Colour $colour "yellow"
       } else {
+        $moderateRecent++
         $colour = Set-Colour $colour "green"
       }
-      $moderateCount = $moderateCount + 1
-      $moderateOutput = $moderateOutput + "<tr><td style=`"colour:yellow;`">$Severity</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`"$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+
     } else {
+      $otherCount++
       if ($patchDate -lt $dateOtherLimit) {
+        $otherOverdue++
         $colour = Set-Colour $colour "yellow"
       } else {
+        $otherRecent++
         $colour = Set-Colour $colour "green"
       }
-      $otherCount = $otherCount + 1
-      $otherOutput = $otherOutput + "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://technet.microsoft.com/en-us/library/security/$bulletin.aspx`" target=`"_blank`">$Bulletin</a></td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" target=`"_blank`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $otherOutput += "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     }
   }
+
   if ($criticalCount -eq 0) {
     Write-DebugLog "No critical updates"
   }
-} else {
+}
+else {
   Write-DebugLog "No updates found"
   $colour = "green"
 }
@@ -623,47 +531,94 @@ Write-DebugLog "Get hostname"
 $fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
 $outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
-$outputText = $outputText + "Delay critical update alarms in [days]: $CriticalLimit`r`n"
-$outputText = $outputText + "Delay moderate update alarms in [days]: $ModerateLimit`r`n"
-$outputText = $outputText + "Delay other update alarms [days]: $OtherLimit`r`n"
-$outputText = $outputText + "Update service: $ServiceName`r`n"
+$outputText += "Critical thresholds: Critical Overdue: $CriticalLimit [days]`r`n"
+$outputText += "Warning thresholds:  Critical: 0 [days], Moderate Overdue: $ModerateLimit [days], Other Overdue: $OtherLimit [days]`r`n"
+
+if ($null -ne $DefaultAUService) {
+    switch ($DefaultAUService.ServiceID.ToLower()) {
+        '7971f918-a847-4430-9279-4a52d1efe18d' {
+            $outputText += "Update service: Microsoft Update`r`n"
+        }
+        '9482f4b4-e343-43b6-b170-9a65bc822c77' {
+            $outputText += "Update service: Windows Update (&yellow Expected Microsoft Update)`r`n"
+        }
+        default {
+            $outputText += "Update service: $($DefaultAUService.Name) (ServiceID: $($DefaultAUService.ServiceID))`r`n"
+        }
+    }
+}
+else {
+    $outputText += "&red Unable to detect default update service`r`n"
+}
+
 $outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
 $outputText = $outputText + "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
 $outputText = $outputText + "Last successfull monitoring search: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
 
-if ($CheckCompliance) {
-  $outputText = $outputText + $compliantOutputText
-}
-
-if ($count) {
-  $outputText = $outputText + "&yellow Total update(s) available: $count`r`n"
-} else {
-  $outputText = $outputText + "&green Total update(s) available: 0`r`n"
-}
+$outputText = $outputText + $compliantOutputText
 
 if (-not $SearchOnlineSuccess) {
   $outputText = $outputText + "&yellow Update is unreachable after retries: $SearchRetries`r`n"
 }
-if ($criticalCount -gt 0) {
-  Write-DebugLog "Red colour due to critical updates"
-  $outputText = $outputText + "&red Critical update(s) available: $criticalCount`r`n"
+
+# --- Summary output ---
+$totalUpdates = $criticalCount + $moderateCount + $otherCount
+
+if ($totalUpdates -gt 0) {
+    # Determine overall colour based on worst severity
+    if ($criticalOverdue -gt 0) {
+        $overallColour = "red"
+    }
+    elseif ($criticalCount -gt 0 -or $moderateOverdue -gt 0 -or $otherOverdue -gt 0) {
+        $overallColour = "yellow"
+    }
+    else {
+        $overallColour = "green"
+    }
+
+    $outputText += "&$overallColour Total update(s) available: $totalUpdates`r`n"
+
+    if ($criticalCount -gt 0) {
+        if ($criticalOverdue -gt 0) {
+            $outputText += "  &red Critical: $criticalCount ($criticalOverdue overdue, $criticalRecent recent)`r`n"
+        }
+        else {
+            $outputText += "  &yellow Critical: $criticalCount ($criticalOverdue overdue, $criticalRecent recent)`r`n"
+        }
+    }
+
+    if ($moderateCount -gt 0) {
+        if ($moderateOverdue -gt 0) {
+            $outputText += "  &yellow Moderate/Important: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
+        }
+        else {
+            $outputText += "  &green Moderate/Important: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
+        }
+    }
+
+    if ($otherCount -gt 0) {
+        if ($otherOverdue -gt 0) {
+            $outputText += "  &yellow Other: $otherCount ($otherOverdue overdue, $otherRecent recent)`r`n"
+        }
+        else {
+            $outputText += "  &green Other: $otherCount ($otherOverdue overdue, $otherRecent recent)`r`n"
+        }
+    }
 }
-if ($moderateCount -gt 0) {
-  Write-DebugLog "Yellow colour due to moderate updates"
-  $outputText = $outputText + "&yellow Moderate update(s) available: $moderateCount`r`n"
+else {
+    $outputText += "&green Total update(s) available: 0`r`n"
 }
-if ($otherCount -gt 0) {
-  Write-DebugLog "Green colour due to other updates"
-  $outputText = $outputText + "&green Other update(s) available: $otherCount`r`n"
-}
+
 if ($PendingReboot) {
-  $outputText = $outputText + "&yellow Reboot pending`r`n"
+  $reasonsText = ($result.Reasons -join ", ")
+  $outputText += "&yellow Reboot pending: $reasonsText`r`n"
 }
+
 if ($count -gt 0) {
   Write-DebugLog "Updates have been detected so output contains updates listing"
   $outputText = $outputText + "<p>&nbsp;</p>`r`n"
   $outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
-  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>Bulletin</th><th>KB</th><th>Status</th><th>Title</th></tr>`r`n"
+  $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>KB</th><th>Status</th><th>Title</th></tr>`r`n"
   $outputText = $outputText + $criticalOutput
   $outputText = $outputText + $moderateOutput
   $outputText = $outputText + $otherOutput
