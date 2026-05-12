@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.1 / 2026-05-12 - Red when LastSearchSuccessDate is null (API unresponsive), yellow when older than $AutoUpdateMaxAgeDays
 # Version 1.0 / 2026-05-12 - Yellow alert when AutoUpdate API unresponsive (LastSearchSuccessDate null)
 # Version 0.9 / 2026-05-12 - Bump Invoke-WithTimeout from 15s to 30s
 # Version 0.8 / 2026-05-12 - Skip Dispose() on Invoke-WithTimeout timeout path (Dispose blocks on stuck unmanaged thread)
@@ -61,6 +62,7 @@ $CriticalLimit = 14              # Delay critical updates alarm for days
 $ModerateLimit = $CriticalLimit  # Delay moderate updates alarm for days
 $OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
 $MaxRuntimeMinutes = 30          # Hung instances older than this are killed
+$AutoUpdateMaxAgeDays = 1        # Yellow if LastSearchSuccessDate is older than this
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
@@ -120,7 +122,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.0
+$ScriptVersion = 1.1
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -610,7 +612,13 @@ else {
   $colour = "green"
 }
 
-if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg -or $null -eq $LastSearchSuccessDate) {
+if ($null -eq $LastSearchSuccessDate) {
+  $colour = Set-Colour $colour "red"
+} elseif ((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays -gt $AutoUpdateMaxAgeDays) {
+  $colour = Set-Colour $colour "yellow"
+}
+
+if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg) {
   $colour = Set-Colour $colour "yellow"
 }
 
@@ -640,9 +648,14 @@ else {
 
 $outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
 if ($null -eq $LastSearchSuccessDate) {
-  $outputText += "&yellow Last successfull self search: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
+  $outputText += "&red Last successfull self search: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
 } else {
-  $outputText += "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+  $selfSearchAgeDays = [math]::Round((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays, 1)
+  if ($selfSearchAgeDays -gt $AutoUpdateMaxAgeDays) {
+    $outputText += "&yellow Last successfull self search: {0:$DateFormatYMDHMS} (stale: $selfSearchAgeDays days old, threshold $AutoUpdateMaxAgeDays)`r`n" -f $LastSearchSuccessDate
+  } else {
+    $outputText += "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+  }
 }
 $outputText = $outputText + "Last successfull monitoring search: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
 
