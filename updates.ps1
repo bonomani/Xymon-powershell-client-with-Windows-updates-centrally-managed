@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.4 / 2026-05-12 - Skip AU service scan health check in Disabled/Manual modes (no auto scan expected)
 # Version 1.3 / 2026-05-12 - Fallback: extract KB from Title when KBArticleIDs is empty
 # Version 1.2 / 2026-05-12 - Clearer labels: "Last AU service scan" / "Last probe online scan"
 # Version 1.1 / 2026-05-12 - Red when LastSearchSuccessDate is null (API unresponsive), yellow when older than $AutoUpdateMaxAgeDays
@@ -124,7 +125,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.3
+$ScriptVersion = 1.4
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -619,10 +620,18 @@ else {
   $colour = "green"
 }
 
-if ($null -eq $LastSearchSuccessDate) {
-  $colour = Set-Colour $colour "red"
-} elseif ((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays -gt $AutoUpdateMaxAgeDays) {
-  $colour = Set-Colour $colour "yellow"
+# In Disabled (NoAutoUpdate=1) and Manual (AUOptions=1) modes, AU does not
+# auto-scan by design, so an empty/stale LastSearchSuccessDate is expected
+# and must not raise an alert. Only evaluate health when an auto-scan mode
+# is configured.
+$AutoScanExpected = $currentName -notin @("Disabled", "Manual")
+
+if ($AutoScanExpected) {
+  if ($null -eq $LastSearchSuccessDate) {
+    $colour = Set-Colour $colour "red"
+  } elseif ((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays -gt $AutoUpdateMaxAgeDays) {
+    $colour = Set-Colour $colour "yellow"
+  }
 }
 
 if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg) {
@@ -654,7 +663,13 @@ else {
 }
 
 $outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
-if ($null -eq $LastSearchSuccessDate) {
+if (-not $AutoScanExpected) {
+  if ($null -eq $LastSearchSuccessDate) {
+    $outputText += "Last AU service scan: n/a (not evaluated in $currentName mode)`r`n"
+  } else {
+    $outputText += "Last AU service scan: {0:$DateFormatYMDHMS} (not evaluated in $currentName mode)`r`n" -f $LastSearchSuccessDate
+  }
+} elseif ($null -eq $LastSearchSuccessDate) {
   $outputText += "&red Last AU service scan: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
 } else {
   $selfSearchAgeDays = [math]::Round((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays, 1)
