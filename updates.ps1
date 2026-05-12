@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.5 / 2026-05-12 - Cleaner Regs line: "AUOptions=1 [Manual] (1,2,3,4,7)" style
 # Version 1.4 / 2026-05-12 - Skip AU service scan health check in Disabled/Manual modes (no auto scan expected)
 # Version 1.3 / 2026-05-12 - Fallback: extract KB from Title when KBArticleIDs is empty
 # Version 1.2 / 2026-05-12 - Clearer labels: "Last AU service scan" / "Last probe online scan"
@@ -125,7 +126,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.4
+$ScriptVersion = 1.5
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -375,18 +376,26 @@ $expectedProfiles = @{
 
 $exp = $expectedProfiles[$expectedProfile]
 
+# Symbolic names per registry key, and the full set of valid values
+# (shown as a reference next to the current value). The compliance line
+# above already tells the reader what is expected for the active profile.
+$auOptionsLookup    = @{ 1='Manual'; 2='Notify'; 3='Download'; 4='Automatic'; 7='AutoAdmin' }
+$noAutoUpdateLookup = @{ 0='Enabled'; 1='Disabled' }
+$auOptionsPossible    = '1,2,3,4,7'
+$noAutoUpdatePossible = '0,1'
+
 function Format-Value {
-    param($name, $current, $expected)
-    if ($expected -is [array]) { $expectedText = ($expected -join "|") } else { $expectedText = $expected }
-    $match = ($expected -is [array] -and $expected -contains $current) -or ($expected -eq $current)
-    $color = if ($match) { "&green" } else { "&red" }
-    return $color+" "+$name+": "+$current+"/"+$expectedText
+    param($name, $current, $expected, $symbolLookup, $possibleValues)
+    $match  = ($expected -is [array] -and $expected -contains $current) -or ($expected -eq $current)
+    $color  = if ($match) { "&green" } else { "&red" }
+    $symbol = if ($symbolLookup.ContainsKey([int]$current)) { $symbolLookup[[int]$current] } else { '?' }
+    return "$color $name=$current [$symbol] ($possibleValues)"
 }
 
 $compliantOutputText += "   Regs: " + (
-    (Format-Value "AUOptions"    $regValueAUOptions $exp.AUOptions),
-    (Format-Value "NoAutoUpdate" $regValueNAU       $exp.NoAutoUpdate)
-) -join ", "
+    (Format-Value "AUOptions"    $regValueAUOptions $exp.AUOptions    $auOptionsLookup    $auOptionsPossible),
+    (Format-Value "NoAutoUpdate" $regValueNAU       $exp.NoAutoUpdate $noAutoUpdateLookup $noAutoUpdatePossible)
+) -join " "
 $compliantOutputText += "`r`n"
 
 # Final compliance flag
