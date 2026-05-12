@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 0.8 / 2026-05-12 - Skip Dispose() on Invoke-WithTimeout timeout path (Dispose blocks on stuck unmanaged thread)
 # Version 0.7 / 2026-05-12 - Timeout-guard COM calls to Microsoft.Update.AutoUpdate / ServiceManager (hang on AU-disabled hosts)
 # Version 0.6 / 2026-05-12 - Single-instance lock + stale (hung) process cleanup
 # Version 0.5 / 2025-12-04 - Compliance check with default "Download" if omitted
@@ -99,24 +100,25 @@ function Invoke-WithTimeout {
     $ps = [PowerShell]::Create()
     [void]$ps.AddScript($ScriptBlock)
     $handle = $ps.BeginInvoke()
-    try {
-        if ($handle.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000)) {
-            return $ps.EndInvoke($handle)
-        }
-        Write-DebugLog "Invoke-WithTimeout: timed out after $TimeoutSeconds s"
-        return $null
-    } catch {
-        Write-DebugLog "Invoke-WithTimeout: error $_"
-        return $null
-    } finally {
+    if ($handle.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000)) {
+        # Pipeline finished in time — safe to collect result and dispose.
+        try { $result = $ps.EndInvoke($handle) } catch { $result = $null }
         try { $ps.Dispose() } catch {}
+        return $result
     }
+    # Pipeline still running in unmanaged code (stuck COM call).
+    # Do NOT call $ps.Dispose() here: it is synchronous and would block
+    # waiting on the same stuck thread we are trying to escape. The
+    # runspace and its thread leak until the script process exits a few
+    # seconds later — the OS reclaims everything. Acceptable trade-off.
+    Write-DebugLog "Invoke-WithTimeout: timed out after $TimeoutSeconds s (runspace abandoned)"
+    return $null
 }
 
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 0.7
+$ScriptVersion = 0.8
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
