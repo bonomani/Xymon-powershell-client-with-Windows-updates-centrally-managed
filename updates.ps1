@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.0 / 2026-05-12 - Yellow alert when AutoUpdate API unresponsive (LastSearchSuccessDate null)
 # Version 0.9 / 2026-05-12 - Bump Invoke-WithTimeout from 15s to 30s
 # Version 0.8 / 2026-05-12 - Skip Dispose() on Invoke-WithTimeout timeout path (Dispose blocks on stuck unmanaged thread)
 # Version 0.7 / 2026-05-12 - Timeout-guard COM calls to Microsoft.Update.AutoUpdate / ServiceManager (hang on AU-disabled hosts)
@@ -119,7 +120,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 0.9
+$ScriptVersion = 1.0
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -609,7 +610,7 @@ else {
   $colour = "green"
 }
 
-if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg) {
+if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg -or $null -eq $LastSearchSuccessDate) {
   $colour = Set-Colour $colour "yellow"
 }
 
@@ -638,7 +639,11 @@ else {
 }
 
 $outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
-$outputText = $outputText + "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+if ($null -eq $LastSearchSuccessDate) {
+  $outputText += "&yellow Last successfull self search: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
+} else {
+  $outputText += "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+}
 $outputText = $outputText + "Last successfull monitoring search: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
 
 $outputText = $outputText + $compliantOutputText
