@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.3 / 2026-05-12 - Fallback: extract KB from Title when KBArticleIDs is empty
 # Version 1.2 / 2026-05-12 - Clearer labels: "Last AU service scan" / "Last probe online scan"
 # Version 1.1 / 2026-05-12 - Red when LastSearchSuccessDate is null (API unresponsive), yellow when older than $AutoUpdateMaxAgeDays
 # Version 1.0 / 2026-05-12 - Yellow alert when AutoUpdate API unresponsive (LastSearchSuccessDate null)
@@ -123,7 +124,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.2
+$ScriptVersion = 1.3
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -555,6 +556,11 @@ if ($count -gt 0) {
     $patchAge  = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
     $kb        = $wUpdate.KB
     $title     = $wUpdate.Title
+    # Microsoft does not always populate KBArticleIDs (.NET cumulatives, etc.).
+    # Fall back to parsing "KB#######" from the title to keep the column consistent.
+    if ([string]::IsNullOrWhiteSpace("$kb") -and $title -match 'KB(\d+)') {
+      $kb = $Matches[1]
+    }
     $isHidden  = $wUpdate.IsHidden
 
     # Build status flags
