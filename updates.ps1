@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.6 / 2026-05-12 - Fix missing ">" in Moderate-row HTML anchor (KB link was unrendered)
 # Version 1.5 / 2026-05-12 - Cleaner Regs line: "AUOptions=1 [Manual] (1,2,3,4,7)" style
 # Version 1.4 / 2026-05-12 - Skip AU service scan health check in Disabled/Manual modes (no auto scan expected)
 # Version 1.3 / 2026-05-12 - Fallback: extract KB from Title when KBArticleIDs is empty
@@ -126,7 +127,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.5
+$ScriptVersion = 1.6
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -605,7 +606,7 @@ if ($count -gt 0) {
         $moderateRecent++
         $colour = Set-Colour $colour "green"
       }
-      $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`"$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
     } else {
       $otherCount++
