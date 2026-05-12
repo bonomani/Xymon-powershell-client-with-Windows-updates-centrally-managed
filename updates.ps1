@@ -2,6 +2,8 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 0.7 / 2026-05-12 - Timeout-guard COM calls to Microsoft.Update.AutoUpdate / ServiceManager (hang on AU-disabled hosts)
+# Version 0.6 / 2026-05-12 - Single-instance lock + stale (hung) process cleanup
 # Version 0.5 / 2025-12-04 - Compliance check with default "Download" if omitted
 ###############################################################################
 <#
@@ -55,11 +57,13 @@ param(
 $CriticalLimit = 14              # Delay critical updates alarm for days
 $ModerateLimit = $CriticalLimit  # Delay moderate updates alarm for days
 $OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
+$MaxRuntimeMinutes = 30          # Hung instances older than this are killed
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
 $cachefile = 'c:\Program Files\xymon\ext\updates.cache.json'
 $outputFile = 'c:\Program Files\xymon\tmp\updates'
+$lockFile = 'c:\Program Files\xymon\ext\updates.lock'
 
 # Other Settings
 $SearchRetries = 0               # Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
@@ -80,10 +84,82 @@ function Write-DebugLog {
     }
 }
 
+# Run a scriptblock with a hard timeout. Returns $null on timeout or error.
+# Guards COM calls that can hang indefinitely:
+# - Microsoft.Update.AutoUpdate.Results.* never returns when Automatic Updates
+#   is policy-disabled (NoAutoUpdate=1) — observed on Genetec/Server hosts.
+# - Microsoft.Update.ServiceManager is in the same family.
+# The stuck thread is abandoned but harmless: the script exits shortly after
+# writing its output and the OS reclaims it.
+function Invoke-WithTimeout {
+    param(
+        [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
+        [int]$TimeoutSeconds = 30
+    )
+    $ps = [PowerShell]::Create()
+    [void]$ps.AddScript($ScriptBlock)
+    $handle = $ps.BeginInvoke()
+    try {
+        if ($handle.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000)) {
+            return $ps.EndInvoke($handle)
+        }
+        Write-DebugLog "Invoke-WithTimeout: timed out after $TimeoutSeconds s"
+        return $null
+    } catch {
+        Write-DebugLog "Invoke-WithTimeout: error $_"
+        return $null
+    } finally {
+        try { $ps.Dispose() } catch {}
+    }
+}
+
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 0.5
+$ScriptVersion = 0.7
+
+# ------------------------------------------------------------------------------
+# Single-instance guard.
+# Windows Update COM Search() can hang indefinitely (timeout unreliable). Xymon
+# relaunches updates.ps1 every scan, so hung instances accumulate. We:
+#   1) kill our own previous instances older than $MaxRuntimeMinutes,
+#   2) take an exclusive OS file lock on $lockFile; if a fresh instance still
+#      holds it, exit immediately so no new powershell.exe piles up.
+# The lock handle is released by the OS when the process dies, so a killed
+# instance never blocks the next run.
+# ------------------------------------------------------------------------------
+$myScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
+if ($myScriptPath) {
+  $staleThreshold = (Get-Date).AddMinutes(-$MaxRuntimeMinutes)
+  try {
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
+      Where-Object {
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -and
+        $_.CommandLine -like "*$myScriptPath*" -and
+        ([Management.ManagementDateTimeConverter]::ToDateTime($_.CreationDate)) -lt $staleThreshold
+      } | ForEach-Object {
+        Write-DebugLog "Killing stale instance PID $($_.ProcessId) started $($_.CreationDate)"
+        try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {
+          Write-DebugLog "Failed to kill PID $($_.ProcessId): $_"
+        }
+      }
+  } catch {
+    Write-DebugLog "Stale-instance sweep failed: $_"
+  }
+}
+
+try {
+  $script:LockHandle = [System.IO.File]::Open(
+    $lockFile,
+    [System.IO.FileMode]::Create,
+    [System.IO.FileAccess]::ReadWrite,
+    [System.IO.FileShare]::None
+  )
+} catch {
+  Write-DebugLog "Another instance holds the lock; exiting"
+  exit 0
+}
 
 function Test-RegistryValue {
   param(
@@ -309,12 +385,19 @@ $compliantWinUpdateReg = $compliant
 # Use a cache to not bloat the system
 $cacheIsInvalid = $true
 $ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
-$LastSearchSuccessDate = (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
 
-# Récupérer le service par défaut une seule fois
-$DefaultAUService = (New-Object -ComObject "Microsoft.Update.ServiceManager").Services |
-    Where-Object { $_.IsDefaultAUService } |
-    Select-Object ServiceID, Name
+# Wrapped in timeout: Microsoft.Update.AutoUpdate hangs forever when AU is
+# disabled by GPO (NoAutoUpdate=1). $null fallback => the script keeps going.
+$LastSearchSuccessDate = Invoke-WithTimeout -TimeoutSeconds 15 -ScriptBlock {
+    (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
+}
+
+# Récupérer le service par défaut une seule fois (timeout-guarded, same family)
+$DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 15 -ScriptBlock {
+    (New-Object -ComObject "Microsoft.Update.ServiceManager").Services |
+        Where-Object { $_.IsDefaultAUService } |
+        Select-Object ServiceID, Name
+}
 
 if (Test-Path -Path $cachefile -PathType Leaf) {
   Write-DebugLog "Process cache reading "
@@ -346,7 +429,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) {
     Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date -lt (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate) {
+  } elseif ($null -ne $LastSearchSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastSearchSuccessDate) {
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
   } elseif ($scanCache.date.AddHours(11) -lt $StartTime) {
@@ -628,3 +711,7 @@ if ($count -gt 0) {
 
 Write-DebugLog "Save contents into tmp file"
 $outputText | Set-Content -Encoding UTF8 $outputFile
+
+# Release single-instance lock (handle also auto-released if process is killed)
+try { if ($script:LockHandle) { $script:LockHandle.Close() } } catch {}
+try { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue } catch {}
