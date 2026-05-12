@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 0.9 / 2026-05-12 - Bump Invoke-WithTimeout from 15s to 30s
 # Version 0.8 / 2026-05-12 - Skip Dispose() on Invoke-WithTimeout timeout path (Dispose blocks on stuck unmanaged thread)
 # Version 0.7 / 2026-05-12 - Timeout-guard COM calls to Microsoft.Update.AutoUpdate / ServiceManager (hang on AU-disabled hosts)
 # Version 0.6 / 2026-05-12 - Single-instance lock + stale (hung) process cleanup
@@ -118,7 +119,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 0.8
+$ScriptVersion = 0.9
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -390,12 +391,12 @@ $ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | Conv
 
 # Wrapped in timeout: Microsoft.Update.AutoUpdate hangs forever when AU is
 # disabled by GPO (NoAutoUpdate=1). $null fallback => the script keeps going.
-$LastSearchSuccessDate = Invoke-WithTimeout -TimeoutSeconds 15 -ScriptBlock {
+$LastSearchSuccessDate = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
     (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
 }
 
 # Récupérer le service par défaut une seule fois (timeout-guarded, same family)
-$DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 15 -ScriptBlock {
+$DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
     (New-Object -ComObject "Microsoft.Update.ServiceManager").Services |
         Where-Object { $_.IsDefaultAUService } |
         Select-Object ServiceID, Name
