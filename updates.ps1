@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.2 / 2026-05-12 - Clearer labels: "Last AU service scan" / "Last probe online scan"
 # Version 1.1 / 2026-05-12 - Red when LastSearchSuccessDate is null (API unresponsive), yellow when older than $AutoUpdateMaxAgeDays
 # Version 1.0 / 2026-05-12 - Yellow alert when AutoUpdate API unresponsive (LastSearchSuccessDate null)
 # Version 0.9 / 2026-05-12 - Bump Invoke-WithTimeout from 15s to 30s
@@ -122,7 +123,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.1
+$ScriptVersion = 1.2
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -648,16 +649,16 @@ else {
 
 $outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
 if ($null -eq $LastSearchSuccessDate) {
-  $outputText += "&red Last successfull self search: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
+  $outputText += "&red Last AU service scan: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
 } else {
   $selfSearchAgeDays = [math]::Round((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays, 1)
   if ($selfSearchAgeDays -gt $AutoUpdateMaxAgeDays) {
-    $outputText += "&yellow Last successfull self search: {0:$DateFormatYMDHMS} (stale: $selfSearchAgeDays days old, threshold $AutoUpdateMaxAgeDays)`r`n" -f $LastSearchSuccessDate
+    $outputText += "&yellow Last AU service scan: {0:$DateFormatYMDHMS} (stale: $selfSearchAgeDays days old, threshold $AutoUpdateMaxAgeDays)`r`n" -f $LastSearchSuccessDate
   } else {
-    $outputText += "Last successfull self search: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
+    $outputText += "Last AU service scan: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
   }
 }
-$outputText = $outputText + "Last successfull monitoring search: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
+$outputText = $outputText + "Last probe online scan: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
 
 $outputText = $outputText + $compliantOutputText
 
