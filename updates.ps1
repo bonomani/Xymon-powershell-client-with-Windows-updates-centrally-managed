@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.9 / 2026-05-15 - Severity classification refactor: 4 buckets (Critical/Important/Moderate/Other) driven by MsrcSeverity with Security Updates fallback to Important; -CriticalityLevel lever (Low/Standard/High) with per-bucket threshold profiles and granular CLI overrides; cache stores MsrcSeverity; report header shows criticality level and all thresholds
 # Version 1.8 / 2026-05-15 - Sync $ScriptVersion with header; emit n/a for "Last probe online scan" when no successful online scan recorded
 # Version 1.7 / 2026-05-15 - Fix Set-Colour silently downgrading yellow to green when a non-overdue update was processed after an overdue one
 # Version 1.6 / 2026-05-12 - Fix missing ">" in Moderate-row HTML anchor (KB link was unrendered)
@@ -61,15 +62,39 @@ param(
     [string]$AUOptions,
     [string]$NoAutoUpdate,
 
+    # Single lever that drives all per-bucket thresholds below.
+    # Low = default laxist policy for low-criticality infrastructure.
+    [ValidateSet("Low","Standard","High")]
+    [string]$CriticalityLevel = "Low",
+
+    # Optional granular overrides — when omitted, values come from the profile.
+    [int]$CriticalLimit,
+    [int]$ImportantLimit,
+    [int]$ModerateLimit,
+    [int]$OtherLimit,
+    [int]$AutoUpdateMaxAgeDays,
+
     [switch]$Version
 )
 
 # Define Constants
-$CriticalLimit = 14              # Delay critical updates alarm for days
-$ModerateLimit = $CriticalLimit  # Delay moderate updates alarm for days
-$OtherLimit = 2 * $ModerateLimit # Delay other updates alarm for days
+# Threshold profiles per criticality level. Days until an update of that bucket
+# turns yellow (or red, for Critical). Profile selection is one source of truth;
+# individual params above override per-bucket if explicitly passed.
+$criticalityProfiles = @{
+    "Low"      = @{ CriticalLimit=14; ImportantLimit=21; ModerateLimit=28; OtherLimit=56; AutoUpdateMaxAgeDays=1 }
+    "Standard" = @{ CriticalLimit=7;  ImportantLimit=14; ModerateLimit=21; OtherLimit=28; AutoUpdateMaxAgeDays=1 }
+    "High"     = @{ CriticalLimit=3;  ImportantLimit=7;  ModerateLimit=14; OtherLimit=21; AutoUpdateMaxAgeDays=1 }
+}
+
+$thresholds = $criticalityProfiles[$CriticalityLevel]
+if (-not $PSBoundParameters.ContainsKey('CriticalLimit'))        { $CriticalLimit        = $thresholds.CriticalLimit }
+if (-not $PSBoundParameters.ContainsKey('ImportantLimit'))       { $ImportantLimit       = $thresholds.ImportantLimit }
+if (-not $PSBoundParameters.ContainsKey('ModerateLimit'))        { $ModerateLimit        = $thresholds.ModerateLimit }
+if (-not $PSBoundParameters.ContainsKey('OtherLimit'))           { $OtherLimit           = $thresholds.OtherLimit }
+if (-not $PSBoundParameters.ContainsKey('AutoUpdateMaxAgeDays')) { $AutoUpdateMaxAgeDays = $thresholds.AutoUpdateMaxAgeDays }
+
 $MaxRuntimeMinutes = 30          # Hung instances older than this are killed
-$AutoUpdateMaxAgeDays = 1        # Yellow if LastSearchSuccessDate is older than this
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
@@ -129,7 +154,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.8
+$ScriptVersion = 1.9
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -267,27 +292,27 @@ function Set-Colour
 }
 
 function Get-UpdateSeverity {
+    # Returns one of: Critical, Important, Moderate, Other.
+    # Primary source: MsrcSeverity (Microsoft Security Response Center verdict).
+    # Fallback for updates without an MSRC rating: WSUS category. Per Microsoft
+    # documentation, Monthly Rollups are classified as Important on Windows Update,
+    # so any Security Updates category entry without explicit MSRC falls into
+    # Important (not Moderate) — matches MS intent and surfaces Monthly Rollups.
     param(
         [Parameter(Mandatory=$true)]
         $Update
     )
 
-    $cats = @($Update.Categories)
+    switch ($Update.MsrcSeverity) {
+        "Critical"  { return "Critical" }
+        "Important" { return "Important" }
+        "Moderate"  { return "Moderate" }
+        "Low"       { return "Other" }
+    }
 
-    if ($cats -contains "Critical Updates") {
-        return "Critical"
-    }
-    elseif ($cats -contains "Security Updates" -or
-            $cats -contains "Definition Updates" -or
-            $cats -contains "Windows Security Platform" -or
-            $cats -contains "Security Intelligence Update" -or
-            $cats -contains "Windows Defender Antivirus" -or
-            $cats -contains "Antimalware Client") {
-        return "Moderate"
-    }
-    else {
-        return "Other"
-    }
+    if (@($Update.Categories) -contains "Security Updates") { return "Important" }
+
+    return "Other"
 }
 
 if ($Version) {
@@ -295,9 +320,10 @@ if ($Version) {
   exit
 }
 
-$dateCriticalLimit = (Get-Date).adddays(- $CriticalLimit)
-$dateModerateLimit = (Get-Date).adddays(- $ModerateLimit)
-$dateOtherLimit = (Get-Date).adddays(- $OtherLimit)
+$dateCriticalLimit  = (Get-Date).adddays(- $CriticalLimit)
+$dateImportantLimit = (Get-Date).adddays(- $ImportantLimit)
+$dateModerateLimit  = (Get-Date).adddays(- $ModerateLimit)
+$dateOtherLimit     = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
 $os = Get-WmiObject Win32_OperatingSystem
 $osVersion = $os.version
@@ -503,7 +529,7 @@ if ($cacheIsInvalid) {
       [pscustomobject]@{
         Title = $Update.Title
         KB = $($Update.KBArticleIDs)
-        Severity = Get-UpdateSeverity -Update $Update
+        MsrcSeverity = $Update.MsrcSeverity
         IsBeta = $Update.IsBeta
         IsDownloaded = $Update.IsDownloaded
         IsHidden = $Update.IsHidden
@@ -556,9 +582,10 @@ if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
 
   # Init counters and outputs
-  $criticalCount = 0; $criticalOverdue = 0; $criticalRecent = 0; $criticalOutput = ""
-  $moderateCount = 0; $moderateOverdue = 0; $moderateRecent = 0; $moderateOutput = ""
-  $otherCount = 0; $otherOverdue = 0; $otherRecent = 0; $otherOutput = ""
+  $criticalCount  = 0; $criticalOverdue  = 0; $criticalRecent  = 0; $criticalOutput  = ""
+  $importantCount = 0; $importantOverdue = 0; $importantRecent = 0; $importantOutput = ""
+  $moderateCount  = 0; $moderateOverdue  = 0; $moderateRecent  = 0; $moderateOutput  = ""
+  $otherCount     = 0; $otherOverdue     = 0; $otherRecent     = 0; $otherOutput     = ""
   $colour = "green"
 
   foreach ($wUpdate in $Updates) {
@@ -597,7 +624,18 @@ if ($count -gt 0) {
       }
       $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
-    } elseif (($severity -eq "Moderate" -or $severity -eq "Important") -and -not $isHidden) {
+    } elseif ($severity -eq "Important" -and -not $isHidden) {
+      $importantCount++
+      if ($patchDate -lt $dateImportantLimit) {
+        $importantOverdue++
+        $colour = Set-Colour $colour "yellow"
+      } else {
+        $importantRecent++
+        $colour = Set-Colour $colour "green"
+      }
+      $importantOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+
+    } elseif ($severity -eq "Moderate" -and -not $isHidden) {
       $moderateCount++
       if ($patchDate -lt $dateModerateLimit) {
         $moderateOverdue++
@@ -617,7 +655,7 @@ if ($count -gt 0) {
         $otherRecent++
         $colour = Set-Colour $colour "green"
       }
-      $otherOutput += "<tr><td>Other</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $otherOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     }
   }
 
@@ -652,8 +690,10 @@ Write-DebugLog "Get hostname"
 $fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
 $outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
-$outputText += "Critical thresholds: Critical Overdue: $CriticalLimit [days]`r`n"
-$outputText += "Warning thresholds:  Critical: 0 [days], Moderate Overdue: $ModerateLimit [days], Other Overdue: $OtherLimit [days]`r`n"
+$outputText += "Criticality level:   $CriticalityLevel`r`n"
+$outputText += "Red threshold:       Critical Overdue: $CriticalLimit [days]`r`n"
+$outputText += "Yellow thresholds:   Critical: 0 [days], Important Overdue: $ImportantLimit [days], Moderate Overdue: $ModerateLimit [days], Other Overdue: $OtherLimit [days]`r`n"
+$outputText += "AU scan max age:     $AutoUpdateMaxAgeDays [days]`r`n"
 
 if ($null -ne $DefaultAUService) {
     switch ($DefaultAUService.ServiceID.ToLower()) {
@@ -702,14 +742,14 @@ if (-not $SearchOnlineSuccess) {
 }
 
 # --- Summary output ---
-$totalUpdates = $criticalCount + $moderateCount + $otherCount
+$totalUpdates = $criticalCount + $importantCount + $moderateCount + $otherCount
 
 if ($totalUpdates -gt 0) {
     # Determine overall colour based on worst severity
     if ($criticalOverdue -gt 0) {
         $overallColour = "red"
     }
-    elseif ($criticalCount -gt 0 -or $moderateOverdue -gt 0 -or $otherOverdue -gt 0) {
+    elseif ($criticalCount -gt 0 -or $importantOverdue -gt 0 -or $moderateOverdue -gt 0 -or $otherOverdue -gt 0) {
         $overallColour = "yellow"
     }
     else {
@@ -727,12 +767,21 @@ if ($totalUpdates -gt 0) {
         }
     }
 
-    if ($moderateCount -gt 0) {
-        if ($moderateOverdue -gt 0) {
-            $outputText += "  &yellow Moderate/Important: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
+    if ($importantCount -gt 0) {
+        if ($importantOverdue -gt 0) {
+            $outputText += "  &yellow Important: $importantCount ($importantOverdue overdue, $importantRecent recent)`r`n"
         }
         else {
-            $outputText += "  &green Moderate/Important: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
+            $outputText += "  &green Important: $importantCount ($importantOverdue overdue, $importantRecent recent)`r`n"
+        }
+    }
+
+    if ($moderateCount -gt 0) {
+        if ($moderateOverdue -gt 0) {
+            $outputText += "  &yellow Moderate: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
+        }
+        else {
+            $outputText += "  &green Moderate: $moderateCount ($moderateOverdue overdue, $moderateRecent recent)`r`n"
         }
     }
 
@@ -760,6 +809,7 @@ if ($count -gt 0) {
   $outputText = $outputText + "<style>table.updates, table.updates th, table.updates td {border: 1px solid silver; border-collapse:collapse; padding:5px; background-color:black;}</style>`r`n"
   $outputText = $outputText + "<table class=`"updates`"><tr><th>Severity</th><th>Age (days)</th><th>KB</th><th>Status</th><th>Title</th></tr>`r`n"
   $outputText = $outputText + $criticalOutput
+  $outputText = $outputText + $importantOutput
   $outputText = $outputText + $moderateOutput
   $outputText = $outputText + $otherOutput
   $outputText = $outputText + "</table>`r`n"
