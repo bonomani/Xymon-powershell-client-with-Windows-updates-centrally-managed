@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.19 / 2026-05-15 - Consolidate the two parallel colour computations into a single source of truth derived from the bucket counters after the loop; the loop no longer calls Set-Colour per-update (8 calls removed) and the duplicate $overallColour calculation in the Total-line block is gone; $colour is now $overallColour plus the external health modifiers (AU scan, reboot, compliance), so the Total line and the Xymon header stay aligned by construction and adding a future bucket only touches one place
 # Version 1.18 / 2026-05-15 - Declare #requires -Version 3.0 so hosts running stock Windows PowerShell 2.0 (Win 7 SP1 without WMF upgrade) get a clean engine-level error instead of cascading parser failures - the script has always implicitly required PS 3.0+ via ConvertFrom-Json, [pscustomobject], and Get-CimInstance, this just makes the requirement explicit
 # Version 1.17 / 2026-05-15 - Add UTF-8 BOM to the source file so future edits that re-introduce non-ASCII characters (in any string or comment) no longer risk being misread as cp1252 by Windows PowerShell 5.1; the byte-for-byte behavior is unchanged because the content is already pure ASCII, the BOM is purely defensive against regression
 # Version 1.16 / 2026-05-15 - Convert the file to pure ASCII: an em-dash inside a Write-DebugLog string (v1.13) included a byte that maps to a closing curly quote in cp1252, terminating the string early when PowerShell 5.1 reads the BOM-less file in the system codepage and producing a cascade of fake "ampersand not allowed" errors on every &color literal that follows; replace em-dashes with hyphens, arrows with ->, and the lone French comment with English
@@ -164,7 +165,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.18'
+$ScriptVersion = '1.19'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -641,7 +642,6 @@ if ($count -gt 0) {
   $importantCount = 0; $importantOverdue = 0; $importantRecent = 0; $importantOutput = ""
   $moderateCount  = 0; $moderateOverdue  = 0; $moderateRecent  = 0; $moderateOutput  = ""
   $otherCount     = 0; $otherOverdue     = 0; $otherRecent     = 0; $otherOutput     = ""
-  $colour = "green"
 
   foreach ($wUpdate in $Updates) {
     $severity  = Get-UpdateSeverity -Update $wUpdate
@@ -680,15 +680,14 @@ if ($count -gt 0) {
     if ($wUpdate.RebootRequired) { $Status += "R" } else { $status += "-" }
     if ($wUpdate.IsUninstallable) { $Status += "U" } else { $status += "-" }
 
-    # Classify
+    # Classify (counters only; the overall colour is derived from these once
+    # the loop is done, so Set-Colour never needs to run per-update).
     if ($severity -eq "Critical") {
       $criticalCount++
       if ($patchDate -lt $dateCriticalLimit) {
         $criticalOverdue++
-        $colour = Set-Colour $colour "red"
       } else {
         $criticalRecent++
-        $colour = Set-Colour $colour "yellow"
       }
       $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
@@ -696,10 +695,8 @@ if ($count -gt 0) {
       $importantCount++
       if ($patchDate -lt $dateImportantLimit) {
         $importantOverdue++
-        $colour = Set-Colour $colour "yellow"
       } else {
         $importantRecent++
-        $colour = Set-Colour $colour "green"
       }
       $importantOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
@@ -707,10 +704,8 @@ if ($count -gt 0) {
       $moderateCount++
       if ($patchDate -lt $dateModerateLimit) {
         $moderateOverdue++
-        $colour = Set-Colour $colour "yellow"
       } else {
         $moderateRecent++
-        $colour = Set-Colour $colour "green"
       }
       $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
@@ -718,10 +713,8 @@ if ($count -gt 0) {
       $otherCount++
       if ($patchDate -lt $dateOtherLimit) {
         $otherOverdue++
-        $colour = Set-Colour $colour "yellow"
       } else {
         $otherRecent++
-        $colour = Set-Colour $colour "green"
       }
       $otherOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     }
@@ -733,8 +726,27 @@ if ($count -gt 0) {
 }
 else {
   Write-DebugLog "No updates found"
-  $colour = "green"
 }
+
+# Single source of truth: derive the updates-only colour from the counters.
+# Any Critical present escalates to yellow (Critical: 0 days policy);
+# Critical overdue (> $CriticalLimit days) escalates to red; non-critical
+# buckets contribute yellow only when overdue.
+$totalUpdates = $criticalCount + $importantCount + $moderateCount + $otherCount
+if ($criticalOverdue -gt 0) {
+    $overallColour = "red"
+} elseif ($criticalCount -gt 0 -or $importantOverdue -gt 0 -or $moderateOverdue -gt 0 -or $otherOverdue -gt 0) {
+    $overallColour = "yellow"
+} else {
+    $overallColour = "green"
+}
+
+# Xymon header colour starts from the updates-only signal, then absorbs
+# external health modifiers (AU scan freshness, pending reboot, compliance,
+# online search reachability). Keeping these separate from $overallColour
+# lets the "Total update(s) available" line stay an honest reflection of
+# update severity, while the header reflects the overall host health.
+$colour = $overallColour
 
 # In Disabled (NoAutoUpdate=1) and Manual (AUOptions=1) modes, AU does not
 # auto-scan by design, so an empty/stale LastSearchSuccessDate is expected
@@ -808,22 +820,11 @@ if (-not $SearchOnlineSuccess) {
 }
 
 # --- Summary output ---
-$totalUpdates = $criticalCount + $importantCount + $moderateCount + $otherCount
+# $totalUpdates and $overallColour were computed earlier (single source of truth);
+# the Total line is now always emitted with the colour we already derived.
+$outputText += "&$overallColour Total update(s) available: $totalUpdates`r`n"
 
 if ($totalUpdates -gt 0) {
-    # Determine overall colour based on worst severity
-    if ($criticalOverdue -gt 0) {
-        $overallColour = "red"
-    }
-    elseif ($criticalCount -gt 0 -or $importantOverdue -gt 0 -or $moderateOverdue -gt 0 -or $otherOverdue -gt 0) {
-        $overallColour = "yellow"
-    }
-    else {
-        $overallColour = "green"
-    }
-
-    $outputText += "&$overallColour Total update(s) available: $totalUpdates`r`n"
-
     if ($criticalCount -gt 0) {
         if ($criticalOverdue -gt 0) {
             $outputText += "  &red Critical: $criticalCount ($criticalOverdue overdue, $criticalRecent recent)`r`n"
@@ -859,9 +860,6 @@ if ($totalUpdates -gt 0) {
             $outputText += "  &green Other: $otherCount ($otherOverdue overdue, $otherRecent recent)`r`n"
         }
     }
-}
-else {
-    $outputText += "&green Total update(s) available: 0`r`n"
 }
 
 if ($PendingReboot) {
