@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.10 / 2026-05-15 - Hidden updates downgrade severity by one level (Critical->Important, Important->Moderate, Moderate->Other) so they stay visible (H flag) but never escalate to red; fixes the prior bug where hidden Critical/Important/Moderate silently fell into the Other bucket via the missing -not isHidden filter
 # Version 1.9 / 2026-05-15 - Severity classification refactor: 4 buckets (Critical/Important/Moderate/Other) driven by MsrcSeverity with Security Updates fallback to Important; -CriticalityLevel lever (Low/Standard/High) with per-bucket threshold profiles and granular CLI overrides; cache stores MsrcSeverity; report header shows criticality level and all thresholds
 # Version 1.8 / 2026-05-15 - Sync $ScriptVersion with header; emit n/a for "Last probe online scan" when no successful online scan recorded
 # Version 1.7 / 2026-05-15 - Fix Set-Colour silently downgrading yellow to green when a non-overdue update was processed after an overdue one
@@ -154,7 +155,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.9
+$ScriptVersion = 1.10
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -599,7 +600,18 @@ if ($count -gt 0) {
     if ([string]::IsNullOrWhiteSpace("$kb") -and $title -match 'KB(\d+)') {
       $kb = $Matches[1]
     }
-    $isHidden  = $wUpdate.IsHidden
+
+    # Hidden = admin explicitly acknowledged this update and asked to ignore it.
+    # Downgrade severity by one level so the update stays visible (H flag in the
+    # status column) but never escalates to red. Uniform rule across all severities.
+    if ($wUpdate.IsHidden) {
+      $severity = switch ($severity) {
+        "Critical"  { "Important" }
+        "Important" { "Moderate" }
+        "Moderate"  { "Other" }
+        default     { "Other" }
+      }
+    }
 
     # Build status flags
     $Status  = ""
@@ -613,7 +625,7 @@ if ($count -gt 0) {
     if ($wUpdate.IsUninstallable) { $Status += "U" } else { $status += "-" }
 
     # Classify
-    if ($severity -eq "Critical" -and -not $isHidden) {
+    if ($severity -eq "Critical") {
       $criticalCount++
       if ($patchDate -lt $dateCriticalLimit) {
         $criticalOverdue++
@@ -624,7 +636,7 @@ if ($count -gt 0) {
       }
       $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
-    } elseif ($severity -eq "Important" -and -not $isHidden) {
+    } elseif ($severity -eq "Important") {
       $importantCount++
       if ($patchDate -lt $dateImportantLimit) {
         $importantOverdue++
@@ -635,7 +647,7 @@ if ($count -gt 0) {
       }
       $importantOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
-    } elseif ($severity -eq "Moderate" -and -not $isHidden) {
+    } elseif ($severity -eq "Moderate") {
       $moderateCount++
       if ($patchDate -lt $dateModerateLimit) {
         $moderateOverdue++
