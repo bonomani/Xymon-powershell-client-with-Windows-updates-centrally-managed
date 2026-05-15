@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.7 / 2026-05-15 - Fix Set-Colour silently downgrading yellow to green when a non-overdue update was processed after an overdue one
 # Version 1.6 / 2026-05-12 - Fix missing ">" in Moderate-row HTML anchor (KB link was unrendered)
 # Version 1.5 / 2026-05-12 - Cleaner Regs line: "AUOptions=1 [Manual] (1,2,3,4,7)" style
 # Version 1.4 / 2026-05-12 - Skip AU service scan health check in Disabled/Manual modes (no auto scan expected)
@@ -251,16 +252,13 @@ function Test-PendingReboot {
 ## This section controls the reporting colors.
 function Set-Colour
 {
+  # Preserve worst severity: red > yellow > green.
+  # Returning "green" when current is already yellow would silently downgrade.
   param([string]$currentColour,[string]$newColour)
-  if ($currentColour -eq "red") {
+  if ($currentColour -eq "red" -or $newColour -eq "red") {
     "red"
-    # "green"
-  } elseif ($newColour -eq "red") {
-    "red"
-    # "green"
-  } elseif ($newColour -eq "yellow") {
+  } elseif ($currentColour -eq "yellow" -or $newColour -eq "yellow") {
     "yellow"
-    # "green"
   } else {
     "green"
   }
