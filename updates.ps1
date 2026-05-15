@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.15 / 2026-05-15 - Restore PowerShell 2.0 parser compatibility: rewrite the v1.13 "$unknownId = if (...) {} else {}" and v1.14 "$os = try {} catch {}" expression-assignment patterns as plain if/try statements; the inline form was introduced in PowerShell 3.0 and made the parser cascade through every subsequent &color literal as an ampersand error
 # Version 1.14 / 2026-05-15 - Factor OS detection at the top of the script with a CIM-first / WMI-fallback pattern (works on stock Win 7 SP1 with WMF 2.0 as well as modern Windows), drop the last raw Get-WmiObject call, document why Windows 7 skips the AU ServiceID overrides
 # Version 1.13 / 2026-05-15 - Polish: $ScriptVersion declared as string to avoid PowerShell double-precision stripping trailing zero (e.g. 1.10 displayed as 1.1); log WUA Search() failures in retry loop instead of swallowing silently; emit a red Xymon line and clean lock release before exit when neither Microsoft Update nor Windows Update is the default AU service
 # Version 1.12 / 2026-05-15 - Hygiene cleanup: remove unused $os/$osVersion/$osversionLookup and $fqdnHostname, join KBArticleIDs arrays with comma in the report, modernize KB support URLs to /help/ form, document MsrcSeverity unspecified/null fallthrough in Get-UpdateSeverity
@@ -159,7 +160,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.14'
+$ScriptVersion = '1.15'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -339,10 +340,13 @@ $Computername = $env:COMPUTERNAME
 # anything from Win 7 SP1 + WMF 3.0 onward (and all server SKUs from 2012+)
 # supports CIM and is preferred. The fallback to Get-WmiObject keeps the
 # unpatched-Win-7 corner case working.
-$os = try {
-    Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+# NOTE: written as statements (not "$var = try { } catch { }") so the script
+# still parses under PowerShell 2.0.
+$os = $null
+try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
 } catch {
-    Get-WmiObject Win32_OperatingSystem
+    $os = Get-WmiObject Win32_OperatingSystem
 }
 $isWindows7 = $os.Name -like "*Windows 7*"
 
@@ -533,7 +537,7 @@ if ($cacheIsInvalid) {
       # Neither Microsoft Update nor Windows Update is the default AU service.
       # Emit a red Xymon status so the column is not left silently stale, and
       # release the single-instance lock so the next tick can retry cleanly.
-      $unknownId = if ($DefaultAUService) { $DefaultAUService.ServiceID } else { 'n/a' }
+      if ($DefaultAUService) { $unknownId = $DefaultAUService.ServiceID } else { $unknownId = 'n/a' }
       Write-DebugLog "Unknown default AU service '$unknownId' — aborting"
       $errOut  = "red+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
       $errOut += "<h2>Windows Updates Check</h2>`r`n"
