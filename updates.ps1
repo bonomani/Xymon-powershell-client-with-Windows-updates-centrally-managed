@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.21 / 2026-05-15 - PendingFileRenameOperations sources can also carry a "*" or "*<digits>" MoveFileEx flag marker before the "\??\" NT prefix (observed in the wild as *1\??\C:\...); strip it too so the printed list shows the normal Windows path
 # Version 1.20 / 2026-05-15 - PendingFileRenameOperations: replace the existence-only check with a real count of source entries, expose a $PendingFileRenameThreshold profile knob (Low=10, Standard=3, High=0) and matching CLI override so harmless legacy entries no longer trip the reboot-pending alarm, and always print the queued source paths in the report so the operator can see exactly what is waiting (\??\ NT prefix stripped for readability)
 # Version 1.19 / 2026-05-15 - Consolidate the two parallel colour computations into a single source of truth derived from the bucket counters after the loop; the loop no longer calls Set-Colour per-update (8 calls removed) and the duplicate $overallColour calculation in the Total-line block is gone; $colour is now $overallColour plus the external health modifiers (AU scan, reboot, compliance), so the Total line and the Xymon header stay aligned by construction and adding a future bucket only touches one place
 # Version 1.18 / 2026-05-15 - Declare #requires -Version 3.0 so hosts running stock Windows PowerShell 2.0 (Win 7 SP1 without WMF upgrade) get a clean engine-level error instead of cascading parser failures - the script has always implicitly required PS 3.0+ via ConvertFrom-Json, [pscustomobject], and Get-CimInstance, this just makes the requirement explicit
@@ -173,7 +174,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.20'
+$ScriptVersion = '1.21'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -234,8 +235,14 @@ function Test-RegistryValue {
 
 function Get-PendingFileRenameSources {
   # Reads a REG_MULTI_SZ PendingFileRenameOperations[2] value and returns the
-  # source paths (even-indexed entries) with the Windows internal "\??\" NT
-  # prefix stripped. Returns @() when the value is absent.
+  # source paths (even-indexed entries) with their Windows-internal prefixes
+  # stripped for readability. Returns @() when the value is absent.
+  #
+  # Each entry can carry up to two Windows internal prefixes:
+  #   - "*" or "*<digits>" - MoveFileEx flag marker (e.g. *1 = a specific flag
+  #                          set when the entry was queued)
+  #   - "\??\"             - NT object namespace prefix
+  # Strip both so the operator sees a normal "C:\path\to\file" path.
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][string]$ValueName
@@ -250,7 +257,7 @@ function Get-PendingFileRenameSources {
   for ($i = 0; $i -lt $raw.Length; $i += 2) {
     $src = $raw[$i]
     if ($src) {
-      $sources += ($src -replace '^\\\?\?\\', '')
+      $sources += ($src -replace '^\*\d*', '' -replace '^\\\?\?\\', '')
     }
   }
   return $sources
