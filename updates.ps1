@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.13 / 2026-05-15 - Polish: $ScriptVersion declared as string to avoid PowerShell double-precision stripping trailing zero (e.g. 1.10 displayed as 1.1); log WUA Search() failures in retry loop instead of swallowing silently; emit a red Xymon line and clean lock release before exit when neither Microsoft Update nor Windows Update is the default AU service
 # Version 1.12 / 2026-05-15 - Hygiene cleanup: remove unused $os/$osVersion/$osversionLookup and $fqdnHostname, join KBArticleIDs arrays with comma in the report, modernize KB support URLs to /help/ form, document MsrcSeverity unspecified/null fallthrough in Get-UpdateSeverity
 # Version 1.11 / 2026-05-15 - Cache hardening: read wrapped in try/catch (corrupt JSON no longer crashes script), atomic write via tmp+Move-Item, drop overly aggressive ParentProcessId invalidation trigger, raise JSON depth from 4 to 10 (BundledUpdates safety), read with Get-Content -Raw (faster), TTL check first in invalidation order (short-circuit on cold cache)
 # Version 1.10 / 2026-05-15 - Hidden updates downgrade severity by one level (Critical->Important, Important->Moderate, Moderate->Other) so they stay visible (H flag) but never escalate to red; fixes the prior bug where hidden Critical/Important/Moderate silently fell into the Other bucket via the missing -not isHidden filter
@@ -157,7 +158,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.12
+$ScriptVersion = '1.13'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -513,7 +514,18 @@ if ($cacheIsInvalid) {
     } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
       $UpdateSearcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
     } else {
-      exit
+      # Neither Microsoft Update nor Windows Update is the default AU service.
+      # Emit a red Xymon status so the column is not left silently stale, and
+      # release the single-instance lock so the next tick can retry cleanly.
+      $unknownId = if ($DefaultAUService) { $DefaultAUService.ServiceID } else { 'n/a' }
+      Write-DebugLog "Unknown default AU service '$unknownId' — aborting"
+      $errOut  = "red+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
+      $errOut += "<h2>Windows Updates Check</h2>`r`n"
+      $errOut += "&red Unable to detect default update service (ServiceID: $unknownId)`r`n"
+      $errOut | Set-Content -Encoding UTF8 $outputFile
+      try { if ($script:LockHandle) { $script:LockHandle.Close() } } catch {}
+      try { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue } catch {}
+      exit 1
     }
   }
 
@@ -525,7 +537,9 @@ if ($cacheIsInvalid) {
       $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
       $searchresult = $updatesearcher.Search($Criteria)
       $SearchOnlineSuccess = $true
-    } catch {}
+    } catch {
+      Write-DebugLog "WUA Search() failed (attempt $($SearchCount + 1)): $_"
+    }
     $SearchCount++
   } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1)))
 
