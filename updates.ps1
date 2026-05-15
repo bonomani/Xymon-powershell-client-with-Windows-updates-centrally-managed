@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.16 / 2026-05-15 - Convert the file to pure ASCII: an em-dash inside a Write-DebugLog string (v1.13) included a byte that maps to a closing curly quote in cp1252, terminating the string early when PowerShell 5.1 reads the BOM-less file in the system codepage and producing a cascade of fake "ampersand not allowed" errors on every &color literal that follows; replace em-dashes with hyphens, arrows with ->, and the lone French comment with English
 # Version 1.15 / 2026-05-15 - Restore PowerShell 2.0 parser compatibility: rewrite the v1.13 "$unknownId = if (...) {} else {}" and v1.14 "$os = try {} catch {}" expression-assignment patterns as plain if/try statements; the inline form was introduced in PowerShell 3.0 and made the parser cascade through every subsequent &color literal as an ampersand error
 # Version 1.14 / 2026-05-15 - Factor OS detection at the top of the script with a CIM-first / WMI-fallback pattern (works on stock Win 7 SP1 with WMF 2.0 as well as modern Windows), drop the last raw Get-WmiObject call, document why Windows 7 skips the AU ServiceID overrides
 # Version 1.13 / 2026-05-15 - Polish: $ScriptVersion declared as string to avoid PowerShell double-precision stripping trailing zero (e.g. 1.10 displayed as 1.1); log WUA Search() failures in retry loop instead of swallowing silently; emit a red Xymon line and clean lock release before exit when neither Microsoft Update nor Windows Update is the default AU service
@@ -31,8 +32,8 @@
 .DESCRIPTION
    Checks registry values for Windows Update against simplified SCONFIG profiles
    (Disabled, Manual, Notify, Download).
-   - If -CheckSConfig is omitted → validate against default "Download".
-   - If -CheckSConfig is provided → validate against that explicit profile.
+   - If -CheckSConfig is omitted -> validate against default "Download".
+   - If -CheckSConfig is provided -> validate against that explicit profile.
 
 .EXAMPLE
    Check compliance against default "Download" profile:
@@ -53,8 +54,8 @@
    1: Disabled
 
 .PARAMETER CheckSConfig
-   If omitted → Use "Download".
-   If provided → Validate against this profile (Disabled, Manual, Notify, Download).
+   If omitted -> Use "Download".
+   If provided -> Validate against this profile (Disabled, Manual, Notify, Download).
 
 .PARAMETER Version
    Shows script version.
@@ -73,7 +74,7 @@ param(
     [ValidateSet("Low","Standard","High")]
     [string]$CriticalityLevel = "Low",
 
-    # Optional granular overrides — when omitted, values come from the profile.
+    # Optional granular overrides - when omitted, values come from the profile.
     [int]$CriticalLimit,
     [int]$ImportantLimit,
     [int]$ModerateLimit,
@@ -130,7 +131,7 @@ function Write-DebugLog {
 # Run a scriptblock with a hard timeout. Returns $null on timeout or error.
 # Guards COM calls that can hang indefinitely:
 # - Microsoft.Update.AutoUpdate.Results.* never returns when Automatic Updates
-#   is policy-disabled (NoAutoUpdate=1) — observed on Genetec/Server hosts.
+#   is policy-disabled (NoAutoUpdate=1) - observed on Genetec/Server hosts.
 # - Microsoft.Update.ServiceManager is in the same family.
 # The stuck thread is abandoned but harmless: the script exits shortly after
 # writing its output and the OS reclaims it.
@@ -143,7 +144,7 @@ function Invoke-WithTimeout {
     [void]$ps.AddScript($ScriptBlock)
     $handle = $ps.BeginInvoke()
     if ($handle.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000)) {
-        # Pipeline finished in time — safe to collect result and dispose.
+        # Pipeline finished in time - safe to collect result and dispose.
         try { $result = $ps.EndInvoke($handle) } catch { $result = $null }
         try { $ps.Dispose() } catch {}
         return $result
@@ -152,7 +153,7 @@ function Invoke-WithTimeout {
     # Do NOT call $ps.Dispose() here: it is synchronous and would block
     # waiting on the same stuck thread we are trying to escape. The
     # runspace and its thread leak until the script process exits a few
-    # seconds later — the OS reclaims everything. Acceptable trade-off.
+    # seconds later - the OS reclaims everything. Acceptable trade-off.
     Write-DebugLog "Invoke-WithTimeout: timed out after $TimeoutSeconds s (runspace abandoned)"
     return $null
 }
@@ -160,7 +161,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.15'
+$ScriptVersion = '1.16'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -303,15 +304,15 @@ function Get-UpdateSeverity {
     # Fallback for updates without an MSRC rating: WSUS category. Per Microsoft
     # documentation, Monthly Rollups are classified as Important on Windows Update,
     # so any Security Updates category entry without explicit MSRC falls into
-    # Important (not Moderate) — matches MS intent and surfaces Monthly Rollups.
+    # Important (not Moderate) - matches MS intent and surfaces Monthly Rollups.
     param(
         [Parameter(Mandatory=$true)]
         $Update
     )
 
-    # MsrcSeverity can also be $null, "" or "Unspecified" — those fall through
+    # MsrcSeverity can also be $null, "" or "Unspecified" - those fall through
     # the switch and reach the category-based fallback below, which is the
-    # correct behavior (no explicit MS verdict → infer from the WSUS category).
+    # correct behavior (no explicit MS verdict -> infer from the WSUS category).
     switch ($Update.MsrcSeverity) {
         "Critical"  { return "Critical" }
         "Important" { return "Important" }
@@ -389,8 +390,8 @@ $rawAUOptions = if ($null -ne $regAU) { $regAU.AUOptions } else { $null }
 $rawNAU       = if ($null -ne $regAU) { $regAU.NoAutoUpdate } else { $null }
 
 # Normalize registry values
-# - AUOptions absent → default to 3 (Download)
-# - NoAutoUpdate absent → default to 0 (Enabled)
+# - AUOptions absent -> default to 3 (Download)
+# - NoAutoUpdate absent -> default to 0 (Enabled)
 $regValueAUOptions = if ($null -ne $rawAUOptions) { $rawAUOptions } else { 3 }
 $regValueNAU       = if ($null -ne $rawNAU)       { $rawNAU }       else { 0 }
 
@@ -412,7 +413,7 @@ if ($compliant) {
 
 # Build expected values
 $expectedProfiles = @{
-    # Disabled ignores AUOptions → accept any (null,1,2,3,4,7)
+    # Disabled ignores AUOptions -> accept any (null,1,2,3,4,7)
     "Disabled"  = @{ AUOptions=@($null,1,2,3,4,7); NoAutoUpdate=1 }
     "Manual"    = @{ AUOptions=1; NoAutoUpdate=0 }
     "Notify"    = @{ AUOptions=2; NoAutoUpdate=0 }
@@ -456,7 +457,7 @@ $LastSearchSuccessDate = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
     (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
 }
 
-# Récupérer le service par défaut une seule fois (timeout-guarded, same family)
+# Fetch the default AU service once (timeout-guarded, same COM family)
 $DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
     (New-Object -ComObject "Microsoft.Update.ServiceManager").Services |
         Where-Object { $_.IsDefaultAUService } |
@@ -472,7 +473,7 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
   try {
     $scanCache = Get-Content -Raw -Path $cachefile | ConvertFrom-Json
   } catch {
-    Write-DebugLog "Cache file unreadable or corrupt — discarding: $_"
+    Write-DebugLog "Cache file unreadable or corrupt - discarding: $_"
     $scanCache = $null
   }
 }
@@ -524,7 +525,7 @@ if ($cacheIsInvalid) {
   Write-DebugLog "Searching for updates"
 
   # Windows 7's WUA does not accept explicit ServiceID/SearchScope/ServerSelection
-  # overrides — assigning them is a no-op (or throws) there, so skip and let the
+  # overrides - assigning them is a no-op (or throws) there, so skip and let the
   # searcher fall back to the default AU service.
   if (-not $isWindows7) {
     if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
@@ -538,7 +539,7 @@ if ($cacheIsInvalid) {
       # Emit a red Xymon status so the column is not left silently stale, and
       # release the single-instance lock so the next tick can retry cleanly.
       if ($DefaultAUService) { $unknownId = $DefaultAUService.ServiceID } else { $unknownId = 'n/a' }
-      Write-DebugLog "Unknown default AU service '$unknownId' — aborting"
+      Write-DebugLog "Unknown default AU service '$unknownId' - aborting"
       $errOut  = "red+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
       $errOut += "<h2>Windows Updates Check</h2>`r`n"
       $errOut += "&red Unable to detect default update service (ServiceID: $unknownId)`r`n"
