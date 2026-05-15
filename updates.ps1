@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.24 / 2026-05-15 - Wrap WUA Search() and result enumeration in Invoke-WithTimeout so a hung COM call can no longer pin the script past the configured cap (default 10 min), retry up to $SearchAttempts (default 2) with $SearchRetryDelaySeconds (default 30 s) between tries so a transient failure (collision with a concurrent AU agent scan, momentary throttling) doesn't surface as a missed run, and replace the misleading "Update is unreachable after retries: $SearchRetries" line with an actual attempt count plus the last exception message
 # Version 1.23 / 2026-05-15 - Initialise the bucket counters unconditionally so they survive the no-cache + Search()-failed path; v1.19 had moved them inside the "if ($count -gt 0)" block, which meant they stayed $null when Windows Update was unreachable and no prior cache existed, causing $criticalCount + ... = $null and an empty "Total update(s) available:" line in the report
 # Version 1.22 / 2026-05-15 - Invalidate the cache when an update has been installed since it was written: probe LastInstallationSuccessDate alongside LastSearchSuccessDate (same AutoUpdate.Results call, returned as a hashtable so the values cross the runspace boundary safely) and add a fourth invalidation trigger that fires when an install happened between the cache write and the current run; closes the gap where a manual install was invisible to Xymon until the AU service rescanned or the 11 h TTL expired
 # Version 1.21 / 2026-05-15 - PendingFileRenameOperations sources can also carry a "*" or "*<digits>" MoveFileEx flag marker before the "\??\" NT prefix (observed in the wild as *1\??\C:\...); strip it too so the printed list shows the normal Windows path
@@ -125,7 +126,16 @@ $outputFile = 'c:\Program Files\xymon\tmp\updates'
 $lockFile = 'c:\Program Files\xymon\ext\updates.lock'
 
 # Other Settings
-$SearchRetries = 0               # Windows update Timeout = 10min, Max time  =  ($SearchRetries + 1 ) * timeout
+# $SearchAttempts = number of WUA Search() attempts before giving up. The first
+# attempt covers the steady-state; additional attempts cover transient failures
+# (concurrent scan by the AU agent, momentary throttling, brief network glitch).
+# $SearchTimeoutSeconds caps each attempt so a hung Search() can't pin the run
+# (real Search() can take 5-10 min on a cold scan, so we leave room).
+# $SearchRetryDelaySeconds is the pause between attempts so the next try sees
+# a less-contended WUA.
+$SearchAttempts          = 2
+$SearchTimeoutSeconds    = 600
+$SearchRetryDelaySeconds = 30
 $debug = $false                  # Write to logfile
 $DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
 $DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
@@ -153,10 +163,14 @@ function Write-DebugLog {
 function Invoke-WithTimeout {
     param(
         [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 30,
+        [object[]]$Arguments = @()
     )
     $ps = [PowerShell]::Create()
     [void]$ps.AddScript($ScriptBlock)
+    foreach ($a in $Arguments) {
+        [void]$ps.AddArgument($a)
+    }
     $handle = $ps.BeginInvoke()
     if ($handle.AsyncWaitHandle.WaitOne($TimeoutSeconds * 1000)) {
         # Pipeline finished in time - safe to collect result and dispose.
@@ -176,7 +190,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.23'
+$ScriptVersion = '1.24'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -593,86 +607,120 @@ if ($null -ne $scanCache) {
 }
 
 if ($cacheIsInvalid) {
-  Write-DebugLog "Creating update session"
-  $updatesession = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session",$Computername))
-  Write-DebugLog "Creating update searcher"
-  $UpdateSearcher = $updatesession.CreateUpdateSearcher()
-  Write-DebugLog "Searching for updates"
-
-  # Windows 7's WUA does not accept explicit ServiceID/SearchScope/ServerSelection
-  # overrides - assigning them is a no-op (or throws) there, so skip and let the
-  # searcher fall back to the default AU service.
-  if (-not $isWindows7) {
-    if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
-      $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
-      $UpdateSearcher.SearchScope = 1
-      $UpdateSearcher.ServerSelection = 3
-    } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
-      $UpdateSearcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
-    } else {
-      # Neither Microsoft Update nor Windows Update is the default AU service.
-      # Emit a red Xymon status so the column is not left silently stale, and
-      # release the single-instance lock so the next tick can retry cleanly.
-      if ($DefaultAUService) { $unknownId = $DefaultAUService.ServiceID } else { $unknownId = 'n/a' }
-      Write-DebugLog "Unknown default AU service '$unknownId' - aborting"
-      $errOut  = "red+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
-      $errOut += "<h2>Windows Updates Check</h2>`r`n"
-      $errOut += "&red Unable to detect default update service (ServiceID: $unknownId)`r`n"
-      $errOut | Set-Content -Encoding UTF8 $outputFile
-      try { if ($script:LockHandle) { $script:LockHandle.Close() } } catch {}
-      try { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue } catch {}
-      exit 1
-    }
+  # Decide the service mode outside the runspace so an unknown AU service ID
+  # can take the clean-exit path (red Xymon line + lock release) without
+  # touching the script-scope state from inside a child runspace.
+  if ($isWindows7) {
+    $serviceMode = 'Default'
+  } elseif ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
+    $serviceMode = 'MicrosoftUpdate'
+  } elseif ($DefaultAUService.ServiceID -eq '9482f4b4-e343-43b6-b170-9a65bc822c77') {
+    $serviceMode = 'WindowsUpdate'
+  } else {
+    if ($DefaultAUService) { $unknownId = $DefaultAUService.ServiceID } else { $unknownId = 'n/a' }
+    Write-DebugLog "Unknown default AU service '$unknownId' - aborting"
+    $errOut  = "red+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
+    $errOut += "<h2>Windows Updates Check</h2>`r`n"
+    $errOut += "&red Unable to detect default update service (ServiceID: $unknownId)`r`n"
+    $errOut | Set-Content -Encoding UTF8 $outputFile
+    try { if ($script:LockHandle) { $script:LockHandle.Close() } } catch {}
+    try { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue } catch {}
+    exit 1
   }
 
-  $SearchOnlineSuccess = $false
-  $SearchCount = 0
+  $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
 
+  $SearchOnlineSuccess = $false
+  $Updates = $null
+  $lastSearchError = $null
+  $attempt = 0
+
+  # Each attempt creates its own COM session/searcher inside a timeout-guarded
+  # runspace, so a hung Search() (real failure mode seen on collisions with
+  # concurrent AU scans) cannot pin the script past the configured cap. The
+  # Updates collection is enumerated inside the same runspace because COM
+  # objects do not marshal across runspace boundaries; only plain pscustomobjects
+  # cross back.
   do {
-    try {
-      $Criteria = "IsInstalled=0 and DeploymentAction=* or IsPresent=1 and DeploymentAction='Uninstallation' or IsInstalled=1 and DeploymentAction='Installation' and RebootRequired=1 or IsInstalled=0 and DeploymentAction='Uninstallation' and RebootRequired=1"
-      $searchresult = $updatesearcher.Search($Criteria)
+    $attempt++
+    Write-DebugLog "WUA Search attempt $attempt/$SearchAttempts (timeout ${SearchTimeoutSeconds}s, service=$serviceMode)"
+
+    $outcome = Invoke-WithTimeout -TimeoutSeconds $SearchTimeoutSeconds `
+      -Arguments @($Computername, $serviceMode, $Criteria) -ScriptBlock {
+        param($computerName, $serviceMode, $criteria)
+        try {
+          $session = [activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.Session", $computerName))
+          $searcher = $session.CreateUpdateSearcher()
+          switch ($serviceMode) {
+            'MicrosoftUpdate' {
+              $searcher.ServiceID       = '7971f918-a847-4430-9279-4a52d1efe18d'
+              $searcher.SearchScope     = 1
+              $searcher.ServerSelection = 3
+            }
+            'WindowsUpdate' {
+              $searcher.ServiceID = '9482f4b4-e343-43b6-b170-9a65bc822c77'
+            }
+            # 'Default' (Windows 7) leaves the searcher at its default service.
+          }
+          $r = $searcher.Search($criteria)
+          $list = @()
+          for ($i = 0; $i -lt $r.Updates.Count; $i++) {
+            $u = $r.Updates.Item($i)
+            $list += [pscustomobject]@{
+              Title = $u.Title
+              KB = $u.KBArticleIDs
+              MsrcSeverity = $u.MsrcSeverity
+              IsBeta = $u.IsBeta
+              IsDownloaded = $u.IsDownloaded
+              IsHidden = $u.IsHidden
+              IsInstalled = $u.IsInstalled
+              IsMandatory = $u.IsMandatory
+              IsPresent = $u.IsPresent
+              RebootRequired = $u.RebootRequired
+              IsUninstallable = $u.IsUninstallable
+              Url = $u.MoreInfoUrls
+              LastDeploymentChangeTime = $u.LastDeploymentChangeTime
+              Categories = ($u.Categories | Select-Object -ExpandProperty Name)
+              BundledUpdates = @($u.BundledUpdates) | ForEach-Object {
+                [pscustomobject]@{
+                  Title = $_.Title
+                  DownloadUrl = @($_.DownloadContents).DownloadUrl
+                }
+              }
+            }
+          }
+          @{ Success = $true; Updates = $list }
+        } catch {
+          @{ Success = $false; Error = "$_" }
+        }
+      }
+
+    if ($null -eq $outcome) {
+      $lastSearchError = "timed out after ${SearchTimeoutSeconds}s"
+      Write-DebugLog "WUA Search() $lastSearchError (attempt $attempt)"
+    } elseif ($outcome.Success) {
       $SearchOnlineSuccess = $true
-    } catch {
-      Write-DebugLog "WUA Search() failed (attempt $($SearchCount + 1)): $_"
+      $Updates = $outcome.Updates
+      Write-DebugLog "WUA Search() returned $($Updates.Count) updates (attempt $attempt)"
+    } else {
+      $lastSearchError = $outcome.Error
+      Write-DebugLog "WUA Search() failed (attempt $attempt): $lastSearchError"
     }
-    $SearchCount++
-  } until ($SearchOnlineSuccess -or ($SearchCount -eq ($SearchRetries + 1)))
+
+    if (-not $SearchOnlineSuccess -and $attempt -lt $SearchAttempts) {
+      Write-DebugLog "Sleeping ${SearchRetryDelaySeconds}s before next WUA Search attempt"
+      Start-Sleep -Seconds $SearchRetryDelaySeconds
+    }
+  } until ($SearchOnlineSuccess -or ($attempt -ge $SearchAttempts))
 
   if ($SearchOnlineSuccess) {
     $SearchOnlineSuccessDate = $StartTime
   }
 
-  $Updates = if ($searchresult.Updates.Count -gt 0) {
-    $count = $searchresult.Updates.Count
-    Write-DebugLog "$count updates have been found"
-    Write-DebugLog "Looping through updates to retrieve information"
-    for ($i = 0; $i -lt $Count; $i++) {
-      $Update = $searchresult.Updates.Item($i)
-      [pscustomobject]@{
-        Title = $Update.Title
-        KB = $($Update.KBArticleIDs)
-        MsrcSeverity = $Update.MsrcSeverity
-        IsBeta = $Update.IsBeta
-        IsDownloaded = $Update.IsDownloaded
-        IsHidden = $Update.IsHidden
-        IsInstalled = $Update.IsInstalled
-        IsMandatory = $Update.IsMandatory
-        IsPresent = $Update.IsPresent
-        RebootRequired = $Update.RebootRequired
-        IsUninstallable = $Update.IsUninstallable
-        Url = $Update.MoreInfoUrls
-        LastDeploymentChangeTime = $Update.LastDeploymentChangeTime
-        Categories = ($Update.Categories | Select-Object -ExpandProperty Name)
-        BundledUpdates = @($Update.BundledUpdates) | ForEach-Object {
-          [pscustomobject]@{
-            Title = $_.Title
-            DownloadUrl = @($_.DownloadContents).DownloadUrl
-          }
-        }
-      }
-    }
-  }
+  # Set $count for the downstream classification loop. Handles $null (no
+  # successful search), @() (search succeeded but zero pending updates), and
+  # populated arrays in the same expression.
+  if ($Updates) { $count = $Updates.Count } else { $count = 0 }
 
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
@@ -892,7 +940,14 @@ if ($null -eq $SearchOnlineSuccessDate) {
 $outputText = $outputText + $compliantOutputText
 
 if (-not $SearchOnlineSuccess) {
-  $outputText = $outputText + "&yellow Update is unreachable after retries: $SearchRetries`r`n"
+  # $lastSearchError is only populated when we actually attempted a search this
+  # run; if the failure was carried over from a cached previous run, we don't
+  # have a specific message to surface.
+  if ($lastSearchError) {
+    $outputText += "&yellow Update is unreachable after $SearchAttempts attempts (last: $lastSearchError)`r`n"
+  } else {
+    $outputText += "&yellow Update is unreachable (cached failure from previous run)`r`n"
+  }
 }
 
 # --- Summary output ---
