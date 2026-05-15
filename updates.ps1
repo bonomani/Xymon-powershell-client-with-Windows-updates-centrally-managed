@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.22 / 2026-05-15 - Invalidate the cache when an update has been installed since it was written: probe LastInstallationSuccessDate alongside LastSearchSuccessDate (same AutoUpdate.Results call, returned as a hashtable so the values cross the runspace boundary safely) and add a fourth invalidation trigger that fires when an install happened between the cache write and the current run; closes the gap where a manual install was invisible to Xymon until the AU service rescanned or the 11 h TTL expired
 # Version 1.21 / 2026-05-15 - PendingFileRenameOperations sources can also carry a "*" or "*<digits>" MoveFileEx flag marker before the "\??\" NT prefix (observed in the wild as *1\??\C:\...); strip it too so the printed list shows the normal Windows path
 # Version 1.20 / 2026-05-15 - PendingFileRenameOperations: replace the existence-only check with a real count of source entries, expose a $PendingFileRenameThreshold profile knob (Low=10, Standard=3, High=0) and matching CLI override so harmless legacy entries no longer trip the reboot-pending alarm, and always print the queued source paths in the report so the operator can see exactly what is waiting (\??\ NT prefix stripped for readability)
 # Version 1.19 / 2026-05-15 - Consolidate the two parallel colour computations into a single source of truth derived from the bucket counters after the loop; the loop no longer calls Set-Colour per-update (8 calls removed) and the duplicate $overallColour calculation in the Total-line block is gone; $colour is now $overallColour plus the external health modifiers (AU scan, reboot, compliance), so the Total line and the Xymon header stay aligned by construction and adding a future bucket only touches one place
@@ -174,7 +175,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.21'
+$ScriptVersion = '1.22'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -506,8 +507,25 @@ $cacheIsInvalid = $true
 
 # Wrapped in timeout: Microsoft.Update.AutoUpdate hangs forever when AU is
 # disabled by GPO (NoAutoUpdate=1). $null fallback => the script keeps going.
-$LastSearchSuccessDate = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
-    (New-Object -com "Microsoft.Update.AutoUpdate").Results.LastSearchSuccessDate
+# Probe both LastSearchSuccessDate (used for AU health) and
+# LastInstallationSuccessDate (used to invalidate the cache when an update was
+# installed between two runs) in the same COM call - the AutoUpdate.Results
+# object is the same backing store. Return a hashtable rather than the COM
+# object itself so the values cross the runspace boundary safely (Runspace
+# marshalling of COM objects is unreliable on some host configurations).
+$auState = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
+    $auResults = (New-Object -com "Microsoft.Update.AutoUpdate").Results
+    @{
+        Search  = $auResults.LastSearchSuccessDate
+        Install = $auResults.LastInstallationSuccessDate
+    }
+}
+if ($auState) {
+    $LastSearchSuccessDate       = $auState.Search
+    $LastInstallationSuccessDate = $auState.Install
+} else {
+    $LastSearchSuccessDate       = $null
+    $LastInstallationSuccessDate = $null
 }
 
 # Fetch the default AU service once (timeout-guarded, same COM family)
@@ -538,7 +556,10 @@ if ($null -ne $scanCache) {
     Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
     $cacheIsInvalid = $true
   } elseif ($null -ne $LastSearchSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastSearchSuccessDate) {
-    Write-DebugLog "Cache invalidated by Windows update changes"
+    Write-DebugLog "Cache invalidated by AU scan since cache write"
+    $cacheIsInvalid = $true
+  } elseif ($null -ne $LastInstallationSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastInstallationSuccessDate) {
+    Write-DebugLog "Cache invalidated by AU installation since cache write"
     $cacheIsInvalid = $true
   } else {
     # Args comparison (most expensive, runs only when TTL and AU triggers pass)
