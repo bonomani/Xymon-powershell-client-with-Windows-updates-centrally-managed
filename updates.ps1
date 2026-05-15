@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.12 / 2026-05-15 - Hygiene cleanup: remove unused $os/$osVersion/$osversionLookup and $fqdnHostname, join KBArticleIDs arrays with comma in the report, modernize KB support URLs to /help/ form, document MsrcSeverity unspecified/null fallthrough in Get-UpdateSeverity
 # Version 1.11 / 2026-05-15 - Cache hardening: read wrapped in try/catch (corrupt JSON no longer crashes script), atomic write via tmp+Move-Item, drop overly aggressive ParentProcessId invalidation trigger, raise JSON depth from 4 to 10 (BundledUpdates safety), read with Get-Content -Raw (faster), TTL check first in invalidation order (short-circuit on cold cache)
 # Version 1.10 / 2026-05-15 - Hidden updates downgrade severity by one level (Critical->Important, Important->Moderate, Moderate->Other) so they stay visible (H flag) but never escalate to red; fixes the prior bug where hidden Critical/Important/Moderate silently fell into the Other bucket via the missing -not isHidden filter
 # Version 1.9 / 2026-05-15 - Severity classification refactor: 4 buckets (Critical/Important/Moderate/Other) driven by MsrcSeverity with Security Updates fallback to Important; -CriticalityLevel lever (Low/Standard/High) with per-bucket threshold profiles and granular CLI overrides; cache stores MsrcSeverity; report header shows criticality level and all thresholds
@@ -156,7 +157,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.11
+$ScriptVersion = 1.12
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -305,6 +306,9 @@ function Get-UpdateSeverity {
         $Update
     )
 
+    # MsrcSeverity can also be $null, "" or "Unspecified" — those fall through
+    # the switch and reach the category-based fallback below, which is the
+    # correct behavior (no explicit MS verdict → infer from the WSUS category).
     switch ($Update.MsrcSeverity) {
         "Critical"  { return "Critical" }
         "Important" { return "Important" }
@@ -327,10 +331,6 @@ $dateImportantLimit = (Get-Date).adddays(- $ImportantLimit)
 $dateModerateLimit  = (Get-Date).adddays(- $ModerateLimit)
 $dateOtherLimit     = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
-$os = Get-WmiObject Win32_OperatingSystem
-$osVersion = $os.version
-if (([version]$osVersion).Major -eq "10") { $osVersion = "$(([version]$osVersion).Major).$(([version]$osVersion).Minor).*" }
-$osversionLookup = @{ "5.1.2600" = "XP"; "5.1.3790" = "2003"; "6.0.6001" = "Vista/2008"; "6.1.7600" = "Win7/2008R2"; "6.1.7601" = "Win7 SP1/2008R2 SP1"; "6.2.9200" = "Win8/2012"; "6.3.9600" = "Win8.1/2012R2"; "10.0.*" = "Windows 10/Server 2016" };
 
 Write-DebugLog "Searching for PendingReboot"
 #$PendingReboot = Test-PendingReboot
@@ -609,7 +609,9 @@ if ($count -gt 0) {
     $severity  = Get-UpdateSeverity -Update $wUpdate
     $patchDate = $wUpdate.LastDeploymentChangeTime
     $patchAge  = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
-    $kb        = $wUpdate.KB
+    # KBArticleIDs can be an array (rare, but happens on rollups bundling
+    # multiple KBs); join with comma so the HTML cell stays readable.
+    $kb        = (@($wUpdate.KB) | Where-Object { $_ }) -join ', '
     $title     = $wUpdate.Title
     # Microsoft does not always populate KBArticleIDs (.NET cumulatives, etc.).
     # Fall back to parsing "KB#######" from the title to keep the column consistent.
@@ -650,7 +652,7 @@ if ($count -gt 0) {
         $criticalRecent++
         $colour = Set-Colour $colour "yellow"
       }
-      $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $criticalOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
     } elseif ($severity -eq "Important") {
       $importantCount++
@@ -661,7 +663,7 @@ if ($count -gt 0) {
         $importantRecent++
         $colour = Set-Colour $colour "green"
       }
-      $importantOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $importantOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
     } elseif ($severity -eq "Moderate") {
       $moderateCount++
@@ -672,7 +674,7 @@ if ($count -gt 0) {
         $moderateRecent++
         $colour = Set-Colour $colour "green"
       }
-      $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $moderateOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
 
     } else {
       $otherCount++
@@ -683,7 +685,7 @@ if ($count -gt 0) {
         $otherRecent++
         $colour = Set-Colour $colour "green"
       }
-      $otherOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/en-us/kb/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
+      $otherOutput += "<tr><td>$Severity</td><td>$patchAge</td><td><a href=`"https://support.microsoft.com/help/$KB`" onclick=`"window.open(this.href); return false;`">$KB</a></td><td>$Status</td><td>$Title</td></tr>`r`n"
     }
   }
 
@@ -714,8 +716,6 @@ if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg
   $colour = Set-Colour $colour "yellow"
 }
 
-Write-DebugLog "Get hostname"
-$fqdnHostname = [System.Net.DNS]::GetHostByName('').HostName.ToLower()
 $outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText += "Criticality level:   $CriticalityLevel`r`n"
