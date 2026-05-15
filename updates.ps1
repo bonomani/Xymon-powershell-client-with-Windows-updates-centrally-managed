@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.11 / 2026-05-15 - Cache hardening: read wrapped in try/catch (corrupt JSON no longer crashes script), atomic write via tmp+Move-Item, drop overly aggressive ParentProcessId invalidation trigger, raise JSON depth from 4 to 10 (BundledUpdates safety), read with Get-Content -Raw (faster), TTL check first in invalidation order (short-circuit on cold cache)
 # Version 1.10 / 2026-05-15 - Hidden updates downgrade severity by one level (Critical->Important, Important->Moderate, Moderate->Other) so they stay visible (H flag) but never escalate to red; fixes the prior bug where hidden Critical/Important/Moderate silently fell into the Other bucket via the missing -not isHidden filter
 # Version 1.9 / 2026-05-15 - Severity classification refactor: 4 buckets (Critical/Important/Moderate/Other) driven by MsrcSeverity with Security Updates fallback to Important; -CriticalityLevel lever (Low/Standard/High) with per-bucket threshold profiles and granular CLI overrides; cache stores MsrcSeverity; report header shows criticality level and all thresholds
 # Version 1.8 / 2026-05-15 - Sync $ScriptVersion with header; emit n/a for "Last probe online scan" when no successful online scan recorded
@@ -155,7 +156,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.10
+$ScriptVersion = 1.11
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -430,7 +431,6 @@ $compliantOutputText += "`r`n"
 $compliantWinUpdateReg = $compliant
 # Use a cache to not bloat the system
 $cacheIsInvalid = $true
-$ParentProcessId = (Tasklist /svc /fi "SERVICES eq XymonPSClient" /fo csv | ConvertFrom-Csv).PID
 
 # Wrapped in timeout: Microsoft.Update.AutoUpdate hangs forever when AU is
 # disabled by GPO (NoAutoUpdate=1). $null fallback => the script keeps going.
@@ -445,44 +445,56 @@ $DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
         Select-Object ServiceID, Name
 }
 
+# Read cache. A corrupt JSON file (mid-write kill, disk error, manual edit)
+# would crash the script if left unguarded; treat any parse failure as an
+# invalid cache and fall through to a fresh WUA scan.
+$scanCache = $null
 if (Test-Path -Path $cachefile -PathType Leaf) {
   Write-DebugLog "Process cache reading "
-  $scanCache = Get-Content $cachefile | ConvertFrom-Json
-
-  # Check Args
-  $ReferenceObject = $scanCache.Args
-  $DifferenceObject = $PsBoundParameters | ConvertTo-Json | ConvertFrom-Json
-  [array]$objprops = $ReferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
-  $objprops += $DifferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
-  $objprops = $objprops | Sort-Object | Select-Object -Unique
-  $diffs = @()
-  foreach ($objprop in $objprops) {
-    $diff = Compare-Object -ReferenceObject $ReferenceObject -DifferenceObject $DifferenceObject -Property $objprop
-    if ($diff) {
-      $diffprops = @{
-        PropertyName = $objprop
-        RefValue = ($diff | Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object $($objprop))
-        DiffValue = ($diff | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object $($objprop))
-      }
-      $diffs += New-Object -TypeName PSObject -Property $diffprops
-    }
+  try {
+    $scanCache = Get-Content -Raw -Path $cachefile | ConvertFrom-Json
+  } catch {
+    Write-DebugLog "Cache file unreadable or corrupt — discarding: $_"
+    $scanCache = $null
   }
-  if ($diffs) {
-    foreach ($diff in $diffs) {
-      Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
-    }
-    $cacheIsInvalid = $true
-  } elseif ($scanCache.ParentProcessId -ne $ParentProcessId) {
-    Write-DebugLog "Cache invalidated by parent process changes $PID.Parent.Id"
+}
+
+if ($null -ne $scanCache) {
+  # Invalidation triggers, cheapest first so we short-circuit on the common
+  # post-TTL cold cache before paying for the args comparison.
+  if ($null -eq $scanCache.date -or ([datetime]$scanCache.date).AddHours(11) -lt $StartTime) {
+    Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
     $cacheIsInvalid = $true
   } elseif ($null -ne $LastSearchSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastSearchSuccessDate) {
     Write-DebugLog "Cache invalidated by Windows update changes"
     $cacheIsInvalid = $true
-  } elseif ($scanCache.date.AddHours(11) -lt $StartTime) {
-    Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
-    $cacheIsInvalid = $true
   } else {
-    $cacheIsInvalid = $false
+    # Args comparison (most expensive, runs only when TTL and AU triggers pass)
+    $ReferenceObject = $scanCache.Args
+    $DifferenceObject = $PsBoundParameters | ConvertTo-Json | ConvertFrom-Json
+    [array]$objprops = $ReferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
+    $objprops += $DifferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
+    $objprops = $objprops | Sort-Object | Select-Object -Unique
+    $diffs = @()
+    foreach ($objprop in $objprops) {
+      $diff = Compare-Object -ReferenceObject $ReferenceObject -DifferenceObject $DifferenceObject -Property $objprop
+      if ($diff) {
+        $diffprops = @{
+          PropertyName = $objprop
+          RefValue = ($diff | Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object $($objprop))
+          DiffValue = ($diff | Where-Object { $_.SideIndicator -eq '=>' } | ForEach-Object $($objprop))
+        }
+        $diffs += New-Object -TypeName PSObject -Property $diffprops
+      }
+    }
+    if ($diffs) {
+      foreach ($diff in $diffs) {
+        Write-DebugLog ($diff | ForEach-Object { "Cache invalidated by args change key:$($_.PropertyName) val:$($_.DiffValue) cacheVal:$($_.RefValue)" })
+      }
+      $cacheIsInvalid = $true
+    } else {
+      $cacheIsInvalid = $false
+    }
   }
 }
 
@@ -554,14 +566,18 @@ if ($cacheIsInvalid) {
 
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
-    ParentProcessId = $ParentProcessId
     date = $StartTime
     Update = $Updates
     SearchOnlineSuccess = $SearchOnlineSuccess
     SearchOnlineSuccessDate = $SearchOnlineSuccessDate
   }
 
-  ConvertTo-Json -Depth 4 -InputObject $scan | Out-File $cachefile
+  # Atomic write: emit JSON to a temp file then rename onto the live cache.
+  # Move-Item -Force is atomic on the same NTFS filesystem, so a script kill
+  # between the write and the rename leaves the previous cache intact.
+  $cacheTmpFile = "$cachefile.tmp"
+  ConvertTo-Json -Depth 10 -InputObject $scan | Out-File -FilePath $cacheTmpFile
+  Move-Item -Path $cacheTmpFile -Destination $cachefile -Force
 } else {
   Write-DebugLog "Cache Valid: skipping Windows Update Search"
 
