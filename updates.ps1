@@ -1,7 +1,9 @@
-﻿###############################################################################
+﻿#requires -Version 3.0
+###############################################################################
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.18 / 2026-05-15 - Declare #requires -Version 3.0 so hosts running stock Windows PowerShell 2.0 (Win 7 SP1 without WMF upgrade) get a clean engine-level error instead of cascading parser failures - the script has always implicitly required PS 3.0+ via ConvertFrom-Json, [pscustomobject], and Get-CimInstance, this just makes the requirement explicit
 # Version 1.17 / 2026-05-15 - Add UTF-8 BOM to the source file so future edits that re-introduce non-ASCII characters (in any string or comment) no longer risk being misread as cp1252 by Windows PowerShell 5.1; the byte-for-byte behavior is unchanged because the content is already pure ASCII, the BOM is purely defensive against regression
 # Version 1.16 / 2026-05-15 - Convert the file to pure ASCII: an em-dash inside a Write-DebugLog string (v1.13) included a byte that maps to a closing curly quote in cp1252, terminating the string early when PowerShell 5.1 reads the BOM-less file in the system codepage and producing a cascade of fake "ampersand not allowed" errors on every &color literal that follows; replace em-dashes with hyphens, arrows with ->, and the lone French comment with English
 # Version 1.15 / 2026-05-15 - Restore PowerShell 2.0 parser compatibility: rewrite the v1.13 "$unknownId = if (...) {} else {}" and v1.14 "$os = try {} catch {}" expression-assignment patterns as plain if/try statements; the inline form was introduced in PowerShell 3.0 and made the parser cascade through every subsequent &color literal as an ampersand error
@@ -162,7 +164,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.17'
+$ScriptVersion = '1.18'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
