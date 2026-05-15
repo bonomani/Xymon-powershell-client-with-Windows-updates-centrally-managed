@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.23 / 2026-05-15 - Initialise the bucket counters unconditionally so they survive the no-cache + Search()-failed path; v1.19 had moved them inside the "if ($count -gt 0)" block, which meant they stayed $null when Windows Update was unreachable and no prior cache existed, causing $criticalCount + ... = $null and an empty "Total update(s) available:" line in the report
 # Version 1.22 / 2026-05-15 - Invalidate the cache when an update has been installed since it was written: probe LastInstallationSuccessDate alongside LastSearchSuccessDate (same AutoUpdate.Results call, returned as a hashtable so the values cross the runspace boundary safely) and add a fourth invalidation trigger that fires when an install happened between the cache write and the current run; closes the gap where a manual install was invisible to Xymon until the AU service rescanned or the 11 h TTL expired
 # Version 1.21 / 2026-05-15 - PendingFileRenameOperations sources can also carry a "*" or "*<digits>" MoveFileEx flag marker before the "\??\" NT prefix (observed in the wild as *1\??\C:\...); strip it too so the printed list shows the normal Windows path
 # Version 1.20 / 2026-05-15 - PendingFileRenameOperations: replace the existence-only check with a real count of source entries, expose a $PendingFileRenameThreshold profile knob (Low=10, Standard=3, High=0) and matching CLI override so harmless legacy entries no longer trip the reboot-pending alarm, and always print the queued source paths in the report so the operator can see exactly what is waiting (\??\ NT prefix stripped for readability)
@@ -175,7 +176,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.22'
+$ScriptVersion = '1.23'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -704,14 +705,18 @@ if ($cacheIsInvalid) {
 }
 
 $RunTime = New-TimeSpan -Start $StartTime -End (Get-Date)
+
+# Initialise the counters unconditionally so they exist even on the "no
+# updates / search failed / no cache" path. Otherwise the downstream
+# arithmetic ($criticalCount + ... = $null + $null = $null) produces
+# an empty Total line in the report.
+$criticalCount  = 0; $criticalOverdue  = 0; $criticalRecent  = 0; $criticalOutput  = ""
+$importantCount = 0; $importantOverdue = 0; $importantRecent = 0; $importantOutput = ""
+$moderateCount  = 0; $moderateOverdue  = 0; $moderateRecent  = 0; $moderateOutput  = ""
+$otherCount     = 0; $otherOverdue     = 0; $otherRecent     = 0; $otherOutput     = ""
+
 if ($count -gt 0) {
   Write-DebugLog "Start assembling output"
-
-  # Init counters and outputs
-  $criticalCount  = 0; $criticalOverdue  = 0; $criticalRecent  = 0; $criticalOutput  = ""
-  $importantCount = 0; $importantOverdue = 0; $importantRecent = 0; $importantOutput = ""
-  $moderateCount  = 0; $moderateOverdue  = 0; $moderateRecent  = 0; $moderateOutput  = ""
-  $otherCount     = 0; $otherOverdue     = 0; $otherRecent     = 0; $otherOutput     = ""
 
   foreach ($wUpdate in $Updates) {
     $severity  = Get-UpdateSeverity -Update $wUpdate
