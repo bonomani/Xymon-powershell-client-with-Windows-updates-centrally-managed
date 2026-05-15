@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.25 / 2026-05-15 - Detect that WUA is already busy with another download or install via Microsoft.Update.Installer.IsBusy + Microsoft.Update.Downloader.IsBusy before launching our own Search(); when the probe says yes and a previous cache is available, reuse it rather than serialise on the wuauserv lock, which was stalling foreground manual installs at 0% during a script run; with no cache to fall back on we still proceed with Search() because reporting nothing is worse than late, and the skip is surfaced in the report on a dedicated line
 # Version 1.24 / 2026-05-15 - Wrap WUA Search() and result enumeration in Invoke-WithTimeout so a hung COM call can no longer pin the script past the configured cap (default 10 min), retry up to $SearchAttempts (default 2) with $SearchRetryDelaySeconds (default 30 s) between tries so a transient failure (collision with a concurrent AU agent scan, momentary throttling) doesn't surface as a missed run, and replace the misleading "Update is unreachable after retries: $SearchRetries" line with an actual attempt count plus the last exception message
 # Version 1.23 / 2026-05-15 - Initialise the bucket counters unconditionally so they survive the no-cache + Search()-failed path; v1.19 had moved them inside the "if ($count -gt 0)" block, which meant they stayed $null when Windows Update was unreachable and no prior cache existed, causing $criticalCount + ... = $null and an empty "Total update(s) available:" line in the report
 # Version 1.22 / 2026-05-15 - Invalidate the cache when an update has been installed since it was written: probe LastInstallationSuccessDate alongside LastSearchSuccessDate (same AutoUpdate.Results call, returned as a hashtable so the values cross the runspace boundary safely) and add a fourth invalidation trigger that fires when an install happened between the cache write and the current run; closes the gap where a manual install was invisible to Xymon until the AU service rescanned or the 11 h TTL expired
@@ -190,7 +191,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.24'
+$ScriptVersion = '1.25'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -550,6 +551,27 @@ $DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
         Select-Object ServiceID, Name
 }
 
+# Probe whether WUA is currently doing a download or install in another
+# session (manual GUI install, AU agent in progress, etc.). Our own Search()
+# would serialise on the same wuauserv lock and stall - or stall the
+# foreground operation - so when the probe says yes we prefer to reuse the
+# existing cache rather than fight for the lock. Wrapped in Invoke-WithTimeout
+# because every Microsoft.Update.* COM object can hang on policy-disabled
+# hosts (NoAutoUpdate=1). $null result -> assume not busy and proceed.
+$auBusy = Invoke-WithTimeout -TimeoutSeconds 10 -ScriptBlock {
+    try {
+        $installer  = New-Object -ComObject "Microsoft.Update.Installer"
+        $downloader = New-Object -ComObject "Microsoft.Update.Downloader"
+        @{
+            Installer  = [bool]$installer.IsBusy
+            Downloader = [bool]$downloader.IsBusy
+        }
+    } catch {
+        $null
+    }
+}
+$auBusyReuse = $false
+
 # Read cache. A corrupt JSON file (mid-write kill, disk error, manual edit)
 # would crash the script if left unguarded; treat any parse failure as an
 # invalid cache and fall through to a fresh WUA scan.
@@ -604,6 +626,19 @@ if ($null -ne $scanCache) {
       $cacheIsInvalid = $false
     }
   }
+}
+
+# If the cache would normally be refreshed this tick BUT WUA is busy with
+# another download or install, prefer to reuse the existing cache rather than
+# serialize our Search() behind the in-flight operation. This avoids both
+# stalling the foreground install at 0% and prolonging our own run by the
+# duration of that install. We only do this when we have a cache to fall back
+# on; with no cache we accept the contention because reporting nothing is
+# worse than reporting late.
+if ($cacheIsInvalid -and $null -ne $scanCache -and $null -ne $auBusy -and ($auBusy.Installer -or $auBusy.Downloader)) {
+  Write-DebugLog "WUA is busy (installer=$($auBusy.Installer) downloader=$($auBusy.Downloader)) - reusing existing cache to avoid contention"
+  $cacheIsInvalid = $false
+  $auBusyReuse = $true
 }
 
 if ($cacheIsInvalid) {
@@ -935,6 +970,10 @@ if ($null -eq $SearchOnlineSuccessDate) {
   $outputText += "&red Last probe online scan: n/a (no successful online scan)`r`n"
 } else {
   $outputText += "Last probe online scan: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
+}
+
+if ($auBusyReuse) {
+  $outputText += "Skipped WUA Search: AU busy (installer=$($auBusy.Installer) downloader=$($auBusy.Downloader)) - reusing last cache`r`n"
 }
 
 $outputText = $outputText + $compliantOutputText
