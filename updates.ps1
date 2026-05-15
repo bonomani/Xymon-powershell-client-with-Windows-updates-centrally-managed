@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.20 / 2026-05-15 - PendingFileRenameOperations: replace the existence-only check with a real count of source entries, expose a $PendingFileRenameThreshold profile knob (Low=10, Standard=3, High=0) and matching CLI override so harmless legacy entries no longer trip the reboot-pending alarm, and always print the queued source paths in the report so the operator can see exactly what is waiting (\??\ NT prefix stripped for readability)
 # Version 1.19 / 2026-05-15 - Consolidate the two parallel colour computations into a single source of truth derived from the bucket counters after the loop; the loop no longer calls Set-Colour per-update (8 calls removed) and the duplicate $overallColour calculation in the Total-line block is gone; $colour is now $overallColour plus the external health modifiers (AU scan, reboot, compliance), so the Total line and the Xymon header stay aligned by construction and adding a future bucket only touches one place
 # Version 1.18 / 2026-05-15 - Declare #requires -Version 3.0 so hosts running stock Windows PowerShell 2.0 (Win 7 SP1 without WMF upgrade) get a clean engine-level error instead of cascading parser failures - the script has always implicitly required PS 3.0+ via ConvertFrom-Json, [pscustomobject], and Get-CimInstance, this just makes the requirement explicit
 # Version 1.17 / 2026-05-15 - Add UTF-8 BOM to the source file so future edits that re-introduce non-ASCII characters (in any string or comment) no longer risk being misread as cp1252 by Windows PowerShell 5.1; the byte-for-byte behavior is unchanged because the content is already pure ASCII, the BOM is purely defensive against regression
@@ -84,6 +85,7 @@ param(
     [int]$ModerateLimit,
     [int]$OtherLimit,
     [int]$AutoUpdateMaxAgeDays,
+    [int]$PendingFileRenameThreshold,
 
     [switch]$Version
 )
@@ -92,18 +94,24 @@ param(
 # Threshold profiles per criticality level. Days until an update of that bucket
 # turns yellow (or red, for Critical). Profile selection is one source of truth;
 # individual params above override per-bucket if explicitly passed.
+# PendingFileRenameThreshold: maximum number of PendingFileRenameOperations
+# entries that are tolerated before the script raises a "reboot pending" alarm.
+# Windows often carries 1-5 legacy entries that never clear (locked drivers,
+# antivirus update artefacts) - on a low-criticality host they are background
+# noise rather than an actionable signal.
 $criticalityProfiles = @{
-    "Low"      = @{ CriticalLimit=14; ImportantLimit=21; ModerateLimit=28; OtherLimit=56; AutoUpdateMaxAgeDays=1 }
-    "Standard" = @{ CriticalLimit=7;  ImportantLimit=14; ModerateLimit=21; OtherLimit=28; AutoUpdateMaxAgeDays=1 }
-    "High"     = @{ CriticalLimit=3;  ImportantLimit=7;  ModerateLimit=14; OtherLimit=21; AutoUpdateMaxAgeDays=1 }
+    "Low"      = @{ CriticalLimit=14; ImportantLimit=21; ModerateLimit=28; OtherLimit=56; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=10 }
+    "Standard" = @{ CriticalLimit=7;  ImportantLimit=14; ModerateLimit=21; OtherLimit=28; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=3 }
+    "High"     = @{ CriticalLimit=3;  ImportantLimit=7;  ModerateLimit=14; OtherLimit=21; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=0 }
 }
 
 $thresholds = $criticalityProfiles[$CriticalityLevel]
-if (-not $PSBoundParameters.ContainsKey('CriticalLimit'))        { $CriticalLimit        = $thresholds.CriticalLimit }
-if (-not $PSBoundParameters.ContainsKey('ImportantLimit'))       { $ImportantLimit       = $thresholds.ImportantLimit }
-if (-not $PSBoundParameters.ContainsKey('ModerateLimit'))        { $ModerateLimit        = $thresholds.ModerateLimit }
-if (-not $PSBoundParameters.ContainsKey('OtherLimit'))           { $OtherLimit           = $thresholds.OtherLimit }
-if (-not $PSBoundParameters.ContainsKey('AutoUpdateMaxAgeDays')) { $AutoUpdateMaxAgeDays = $thresholds.AutoUpdateMaxAgeDays }
+if (-not $PSBoundParameters.ContainsKey('CriticalLimit'))              { $CriticalLimit              = $thresholds.CriticalLimit }
+if (-not $PSBoundParameters.ContainsKey('ImportantLimit'))             { $ImportantLimit             = $thresholds.ImportantLimit }
+if (-not $PSBoundParameters.ContainsKey('ModerateLimit'))              { $ModerateLimit              = $thresholds.ModerateLimit }
+if (-not $PSBoundParameters.ContainsKey('OtherLimit'))                 { $OtherLimit                 = $thresholds.OtherLimit }
+if (-not $PSBoundParameters.ContainsKey('AutoUpdateMaxAgeDays'))       { $AutoUpdateMaxAgeDays       = $thresholds.AutoUpdateMaxAgeDays }
+if (-not $PSBoundParameters.ContainsKey('PendingFileRenameThreshold')) { $PendingFileRenameThreshold = $thresholds.PendingFileRenameThreshold }
 
 $MaxRuntimeMinutes = 30          # Hung instances older than this are killed
 
@@ -165,7 +173,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.19'
+$ScriptVersion = '1.20'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -224,7 +232,32 @@ function Test-RegistryValue {
   }
 }
 
+function Get-PendingFileRenameSources {
+  # Reads a REG_MULTI_SZ PendingFileRenameOperations[2] value and returns the
+  # source paths (even-indexed entries) with the Windows internal "\??\" NT
+  # prefix stripped. Returns @() when the value is absent.
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$ValueName
+  )
+  try {
+    $raw = (Get-ItemProperty -Path $Path -Name $ValueName -ErrorAction Stop).$ValueName
+  } catch {
+    return @()
+  }
+  if (-not $raw) { return @() }
+  $sources = @()
+  for ($i = 0; $i -lt $raw.Length; $i += 2) {
+    $src = $raw[$i]
+    if ($src) {
+      $sources += ($src -replace '^\\\?\?\\', '')
+    }
+  }
+  return $sources
+}
+
 function Test-PendingReboot {
+  param([int]$PendingFileRenameThreshold = 0)
   [bool]$PendingReboot = $false
   $RebootReasons = @()
 
@@ -252,14 +285,22 @@ function Test-PendingReboot {
     $RebootReasons += "CBS has PackagesPending"
     $PendingReboot = $true
   }
-  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations") {
-    $RebootReasons += "PendingFileRenameOperations exist"
+
+  # PendingFileRenameOperations(2) accumulate over time on Windows: a typical
+  # host carries 1-5 legacy entries that never get processed (locked drivers,
+  # antivirus updater leftovers). Read the actual list, count the source
+  # entries, and only treat the bucket as a reboot reason once the count
+  # exceeds the configured threshold; either way, surface the paths via
+  # PendingFileRenames so the operator can inspect what is queued.
+  $smPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"
+  $pfr1 = Get-PendingFileRenameSources -Path $smPath -ValueName "PendingFileRenameOperations"
+  $pfr2 = Get-PendingFileRenameSources -Path $smPath -ValueName "PendingFileRenameOperations2"
+  $pfrTotal = $pfr1.Count + $pfr2.Count
+  if ($pfrTotal -gt $PendingFileRenameThreshold) {
+    $RebootReasons += "PendingFileRenameOperations: $pfrTotal entries (threshold: $PendingFileRenameThreshold)"
     $PendingReboot = $true
   }
-  if (Test-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Value "PendingFileRenameOperations2") {
-    $RebootReasons += "PendingFileRenameOperations2 exist"
-    $PendingReboot = $true
-  }
+
   if (Test-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" -Value "DVDRebootSignal") {
     $RebootReasons += "RunOnce DVDRebootSignal exists"
     $PendingReboot = $true
@@ -284,6 +325,8 @@ function Test-PendingReboot {
   return [pscustomobject]@{
     Pending = $PendingReboot
     Reasons = $RebootReasons
+    PendingFileRenames = $pfr1 + $pfr2
+    PendingFileRenameThreshold = $PendingFileRenameThreshold
   }
 }
 
@@ -356,8 +399,7 @@ try {
 $isWindows7 = $os.Name -like "*Windows 7*"
 
 Write-DebugLog "Searching for PendingReboot"
-#$PendingReboot = Test-PendingReboot
-$result = Test-PendingReboot
+$result = Test-PendingReboot -PendingFileRenameThreshold $PendingFileRenameThreshold
 $PendingReboot = $result.Pending
 
 Write-DebugLog "Searching for Windows Update registry compliance"
@@ -772,6 +814,7 @@ $outputText += "Criticality level:   $CriticalityLevel`r`n"
 $outputText += "Red threshold:       Critical Overdue: $CriticalLimit [days]`r`n"
 $outputText += "Yellow thresholds:   Critical: 0 [days], Important Overdue: $ImportantLimit [days], Moderate Overdue: $ModerateLimit [days], Other Overdue: $OtherLimit [days]`r`n"
 $outputText += "AU scan max age:     $AutoUpdateMaxAgeDays [days]`r`n"
+$outputText += "Pending file renames max: $PendingFileRenameThreshold [entries]`r`n"
 
 if ($null -ne $DefaultAUService) {
     switch ($DefaultAUService.ServiceID.ToLower()) {
@@ -865,6 +908,24 @@ if ($totalUpdates -gt 0) {
 if ($PendingReboot) {
   $reasonsText = ($result.Reasons -join ", ")
   $outputText += "&yellow Reboot pending: $reasonsText`r`n"
+}
+
+# Always surface the queued file rename operations when there are any, even if
+# their count stays under the alert threshold - the operator may want to see
+# what is sitting in the queue regardless of whether it is currently raising
+# an alarm. Match the rest of the report's convention: emit a colour marker
+# only when the line is in alert state, otherwise let it render neutral.
+$pfrCount = $result.PendingFileRenames.Count
+if ($pfrCount -gt 0) {
+  if ($pfrCount -gt $result.PendingFileRenameThreshold) {
+    $outputText += "&yellow Pending file renames: $pfrCount entries (over threshold $($result.PendingFileRenameThreshold))`r`n"
+  } else {
+    $outputText += "Pending file renames: $pfrCount entries (within threshold $($result.PendingFileRenameThreshold))`r`n"
+  }
+  # Indent the list so it reads as a sub-block of the line above.
+  foreach ($f in $result.PendingFileRenames) {
+    $outputText += "  $f`r`n"
+  }
 }
 
 if ($count -gt 0) {
