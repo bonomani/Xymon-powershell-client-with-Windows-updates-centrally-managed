@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.8 / 2026-05-15 - Sync $ScriptVersion with header; emit n/a for "Last probe online scan" when no successful online scan recorded
 # Version 1.7 / 2026-05-15 - Fix Set-Colour silently downgrading yellow to green when a non-overdue update was processed after an overdue one
 # Version 1.6 / 2026-05-12 - Fix missing ">" in Moderate-row HTML anchor (KB link was unrendered)
 # Version 1.5 / 2026-05-12 - Cleaner Regs line: "AUOptions=1 [Manual] (1,2,3,4,7)" style
@@ -128,7 +129,8 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = 1.6
+$ScriptVersion = 1.8
+$SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -687,7 +689,11 @@ if (-not $AutoScanExpected) {
     $outputText += "Last AU service scan: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
   }
 }
-$outputText = $outputText + "Last probe online scan: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
+if ($null -eq $SearchOnlineSuccessDate) {
+  $outputText += "&red Last probe online scan: n/a (no successful online scan)`r`n"
+} else {
+  $outputText += "Last probe online scan: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
+}
 
 $outputText = $outputText + $compliantOutputText
 
