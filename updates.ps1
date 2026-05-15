@@ -2,6 +2,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.14 / 2026-05-15 - Factor OS detection at the top of the script with a CIM-first / WMI-fallback pattern (works on stock Win 7 SP1 with WMF 2.0 as well as modern Windows), drop the last raw Get-WmiObject call, document why Windows 7 skips the AU ServiceID overrides
 # Version 1.13 / 2026-05-15 - Polish: $ScriptVersion declared as string to avoid PowerShell double-precision stripping trailing zero (e.g. 1.10 displayed as 1.1); log WUA Search() failures in retry loop instead of swallowing silently; emit a red Xymon line and clean lock release before exit when neither Microsoft Update nor Windows Update is the default AU service
 # Version 1.12 / 2026-05-15 - Hygiene cleanup: remove unused $os/$osVersion/$osversionLookup and $fqdnHostname, join KBArticleIDs arrays with comma in the report, modernize KB support URLs to /help/ form, document MsrcSeverity unspecified/null fallthrough in Get-UpdateSeverity
 # Version 1.11 / 2026-05-15 - Cache hardening: read wrapped in try/catch (corrupt JSON no longer crashes script), atomic write via tmp+Move-Item, drop overly aggressive ParentProcessId invalidation trigger, raise JSON depth from 4 to 10 (BundledUpdates safety), read with Get-Content -Raw (faster), TTL check first in invalidation order (short-circuit on cold cache)
@@ -158,7 +159,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.13'
+$ScriptVersion = '1.14'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -333,6 +334,18 @@ $dateModerateLimit  = (Get-Date).adddays(- $ModerateLimit)
 $dateOtherLimit     = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
 
+# Detect the OS once with a graceful WMF 2.0 fallback.
+# Stock Windows 7 SP1 ships with WMF 2.0, which lacks Get-CimInstance;
+# anything from Win 7 SP1 + WMF 3.0 onward (and all server SKUs from 2012+)
+# supports CIM and is preferred. The fallback to Get-WmiObject keeps the
+# unpatched-Win-7 corner case working.
+$os = try {
+    Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+} catch {
+    Get-WmiObject Win32_OperatingSystem
+}
+$isWindows7 = $os.Name -like "*Windows 7*"
+
 Write-DebugLog "Searching for PendingReboot"
 #$PendingReboot = Test-PendingReboot
 $result = Test-PendingReboot
@@ -506,7 +519,10 @@ if ($cacheIsInvalid) {
   $UpdateSearcher = $updatesession.CreateUpdateSearcher()
   Write-DebugLog "Searching for updates"
 
-  if (((Get-WmiObject Win32_OperatingSystem).Name) -notlike "*Windows 7*") {
+  # Windows 7's WUA does not accept explicit ServiceID/SearchScope/ServerSelection
+  # overrides — assigning them is a no-op (or throws) there, so skip and let the
+  # searcher fall back to the default AU service.
+  if (-not $isWindows7) {
     if ($DefaultAUService.ServiceID -eq '7971f918-a847-4430-9279-4a52d1efe18d') {
       $UpdateSearcher.ServiceID = '7971f918-a847-4430-9279-4a52d1efe18d'
       $UpdateSearcher.SearchScope = 1
