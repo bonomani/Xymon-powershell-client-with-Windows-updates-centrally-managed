@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.28 / 2026-05-16 - Replace the five per-bucket threshold lines in Configuration with a markdown-style table (|Bucket|Yellow|Red|) - the matrix layout makes the policy easier to read at a glance and stays trivially parseable: any line starting with "|" is a table row, three pipe-separated cells, no state machine needed; values are plain integers with the "(days)" unit pulled into the table caption
 # Version 1.27 / 2026-05-16 - Restructure the report body into flat key:value pairs grouped into "--- Configuration ---", "--- Scan ---" and "--- Compliance ---" sections with consistent 26/22-char colon alignment; every line in Configuration and Scan now parses with a single regex "^([^:]+?)\s*:\s*(.+)$", the per-bucket thresholds get a dedicated line each instead of being smashed into one comma-soup line, and a downstream tool can extract any value (or the full config) without knowing the script's internal naming
 # Version 1.26 / 2026-05-16 - SCONFIG compliance failure now escalates the Xymon status to red rather than yellow; the operator explicitly opted into the check (either via -CheckSConfig or the implicit "Download" default), so a detected deviation is an intentional policy violation that deserves the same severity as the inline "&red Compliance SCONFIG: ... compliant=False" line - PendingReboot and SearchOnlineSuccess remain at yellow because they are operational signals rather than policy violations
 # Version 1.25 / 2026-05-15 - Detect that WUA is already busy with another download or install via Microsoft.Update.Installer.IsBusy + Microsoft.Update.Downloader.IsBusy before launching our own Search(); when the probe says yes and a previous cache is available, reuse it rather than serialise on the wuauserv lock, which was stalling foreground manual installs at 0% during a script run; with no cache to fall back on we still proceed with Search() because reporting nothing is worse than late, and the skip is surfaced in the report on a dedicated line
@@ -193,7 +194,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.27'
+$ScriptVersion = '1.28'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -944,14 +945,16 @@ $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 # regex: ^([^:]+?)\s*:\s*(.+)$ - section headers match ^---\s+(.+)\s+---$.
 
 $outputText += "--- Configuration ----------------------------------------`r`n"
-$outputText += "{0,-26} : {1}`r`n"  -f "Criticality level",          $CriticalityLevel
-$outputText += "{0,-26} : {1}d`r`n" -f "Critical threshold yellow",  0
-$outputText += "{0,-26} : {1}d`r`n" -f "Critical threshold red",     $CriticalLimit
-$outputText += "{0,-26} : {1}d`r`n" -f "Important threshold yellow", $ImportantLimit
-$outputText += "{0,-26} : {1}d`r`n" -f "Moderate threshold yellow",  $ModerateLimit
-$outputText += "{0,-26} : {1}d`r`n" -f "Other threshold yellow",     $OtherLimit
-$outputText += "{0,-26} : {1}d`r`n" -f "AU scan max age",            $AutoUpdateMaxAgeDays
-$outputText += "{0,-26} : {1}`r`n"  -f "Pending renames max",        $PendingFileRenameThreshold
+$outputText += "{0,-22} : {1}`r`n"  -f "Criticality level",   $CriticalityLevel
+$outputText += "{0,-22} : {1} d`r`n" -f "AU scan max age",    $AutoUpdateMaxAgeDays
+$outputText += "{0,-22} : {1}`r`n"  -f "Pending renames max", $PendingFileRenameThreshold
+$outputText += "`r`nSeverity thresholds (days):`r`n"
+$outputText += "| Bucket    | Yellow | Red |`r`n"
+$outputText += "| --------- | ------ | --- |`r`n"
+$outputText += "| {0,-9} | {1,-6} | {2,-3} |`r`n" -f "Critical",  0,                $CriticalLimit
+$outputText += "| {0,-9} | {1,-6} | {2,-3} |`r`n" -f "Important", $ImportantLimit, "n/a"
+$outputText += "| {0,-9} | {1,-6} | {2,-3} |`r`n" -f "Moderate",  $ModerateLimit,  "n/a"
+$outputText += "| {0,-9} | {1,-6} | {2,-3} |`r`n" -f "Other",     $OtherLimit,     "n/a"
 
 $outputText += "`r`n--- Scan -------------------------------------------------`r`n"
 
