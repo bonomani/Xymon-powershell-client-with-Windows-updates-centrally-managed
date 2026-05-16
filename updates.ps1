@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.26 / 2026-05-16 - SCONFIG compliance failure now escalates the Xymon status to red rather than yellow; the operator explicitly opted into the check (either via -CheckSConfig or the implicit "Download" default), so a detected deviation is an intentional policy violation that deserves the same severity as the inline "&red Compliance SCONFIG: ... compliant=False" line - PendingReboot and SearchOnlineSuccess remain at yellow because they are operational signals rather than policy violations
 # Version 1.25 / 2026-05-15 - Detect that WUA is already busy with another download or install via Microsoft.Update.Installer.IsBusy + Microsoft.Update.Downloader.IsBusy before launching our own Search(); when the probe says yes and a previous cache is available, reuse it rather than serialise on the wuauserv lock, which was stalling foreground manual installs at 0% during a script run; with no cache to fall back on we still proceed with Search() because reporting nothing is worse than late, and the skip is surfaced in the report on a dedicated line
 # Version 1.24 / 2026-05-15 - Wrap WUA Search() and result enumeration in Invoke-WithTimeout so a hung COM call can no longer pin the script past the configured cap (default 10 min), retry up to $SearchAttempts (default 2) with $SearchRetryDelaySeconds (default 30 s) between tries so a transient failure (collision with a concurrent AU agent scan, momentary throttling) doesn't surface as a missed run, and replace the misleading "Update is unreachable after retries: $SearchRetries" line with an actual attempt count plus the last exception message
 # Version 1.23 / 2026-05-15 - Initialise the bucket counters unconditionally so they survive the no-cache + Search()-failed path; v1.19 had moved them inside the "if ($count -gt 0)" block, which meant they stayed $null when Windows Update was unreachable and no prior cache existed, causing $criticalCount + ... = $null and an empty "Total update(s) available:" line in the report
@@ -191,7 +192,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.25'
+$ScriptVersion = '1.26'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -920,8 +921,18 @@ if ($AutoScanExpected) {
   }
 }
 
-if ($PendingReboot -or -not $SearchOnlineSuccess -or -not $compliantWinUpdateReg) {
+# Soft modifiers - operational signals that warrant attention but not an alarm.
+if ($PendingReboot -or -not $SearchOnlineSuccess) {
   $colour = Set-Colour $colour "yellow"
+}
+
+# SCONFIG compliance is escalated to red rather than yellow: the operator
+# explicitly opted into the check (either via -CheckSConfig or the implicit
+# "Download" default), so a deviation is an intentional policy violation, not
+# background noise. Aligns the global Xymon status with the inline "&red
+# Compliance SCONFIG: ... compliant=False" the report already emits.
+if (-not $compliantWinUpdateReg) {
+  $colour = Set-Colour $colour "red"
 }
 
 $outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
