@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.27 / 2026-05-16 - Restructure the report body into flat key:value pairs grouped into "--- Configuration ---", "--- Scan ---" and "--- Compliance ---" sections with consistent 26/22-char colon alignment; every line in Configuration and Scan now parses with a single regex "^([^:]+?)\s*:\s*(.+)$", the per-bucket thresholds get a dedicated line each instead of being smashed into one comma-soup line, and a downstream tool can extract any value (or the full config) without knowing the script's internal naming
 # Version 1.26 / 2026-05-16 - SCONFIG compliance failure now escalates the Xymon status to red rather than yellow; the operator explicitly opted into the check (either via -CheckSConfig or the implicit "Download" default), so a detected deviation is an intentional policy violation that deserves the same severity as the inline "&red Compliance SCONFIG: ... compliant=False" line - PendingReboot and SearchOnlineSuccess remain at yellow because they are operational signals rather than policy violations
 # Version 1.25 / 2026-05-15 - Detect that WUA is already busy with another download or install via Microsoft.Update.Installer.IsBusy + Microsoft.Update.Downloader.IsBusy before launching our own Search(); when the probe says yes and a previous cache is available, reuse it rather than serialise on the wuauserv lock, which was stalling foreground manual installs at 0% during a script run; with no cache to fall back on we still proceed with Search() because reporting nothing is worse than late, and the skip is surfaced in the report on a dedicated line
 # Version 1.24 / 2026-05-15 - Wrap WUA Search() and result enumeration in Invoke-WithTimeout so a hung COM call can no longer pin the script past the configured cap (default 10 min), retry up to $SearchAttempts (default 2) with $SearchRetryDelaySeconds (default 30 s) between tries so a transient failure (collision with a concurrent AU agent scan, momentary throttling) doesn't surface as a missed run, and replace the misleading "Update is unreachable after retries: $SearchRetries" line with an actual attempt count plus the last exception message
@@ -192,7 +193,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.26'
+$ScriptVersion = '1.27'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -937,68 +938,80 @@ if (-not $compliantWinUpdateReg) {
 
 $outputText = $outputText + "$colour+12h {0:$DateFormatYMDHMS}`r`n" -f $StartTime
 $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
-$outputText += "Criticality level:   $CriticalityLevel`r`n"
-$outputText += "Red threshold:       Critical Overdue: $CriticalLimit [days]`r`n"
-$outputText += "Yellow thresholds:   Critical: 0 [days], Important Overdue: $ImportantLimit [days], Moderate Overdue: $ModerateLimit [days], Other Overdue: $OtherLimit [days]`r`n"
-$outputText += "AU scan max age:     $AutoUpdateMaxAgeDays [days]`r`n"
-$outputText += "Pending file renames max: $PendingFileRenameThreshold [entries]`r`n"
+
+# Report body uses a flat key : value layout grouped into "--- Section ---"
+# blocks. Every line in Configuration and Scan is parseable with a single
+# regex: ^([^:]+?)\s*:\s*(.+)$ - section headers match ^---\s+(.+)\s+---$.
+
+$outputText += "--- Configuration ----------------------------------------`r`n"
+$outputText += "{0,-26} : {1}`r`n"  -f "Criticality level",          $CriticalityLevel
+$outputText += "{0,-26} : {1}d`r`n" -f "Critical threshold yellow",  0
+$outputText += "{0,-26} : {1}d`r`n" -f "Critical threshold red",     $CriticalLimit
+$outputText += "{0,-26} : {1}d`r`n" -f "Important threshold yellow", $ImportantLimit
+$outputText += "{0,-26} : {1}d`r`n" -f "Moderate threshold yellow",  $ModerateLimit
+$outputText += "{0,-26} : {1}d`r`n" -f "Other threshold yellow",     $OtherLimit
+$outputText += "{0,-26} : {1}d`r`n" -f "AU scan max age",            $AutoUpdateMaxAgeDays
+$outputText += "{0,-26} : {1}`r`n"  -f "Pending renames max",        $PendingFileRenameThreshold
+
+$outputText += "`r`n--- Scan -------------------------------------------------`r`n"
 
 if ($null -ne $DefaultAUService) {
-    switch ($DefaultAUService.ServiceID.ToLower()) {
-        '7971f918-a847-4430-9279-4a52d1efe18d' {
-            $outputText += "Update service: Microsoft Update`r`n"
-        }
-        '9482f4b4-e343-43b6-b170-9a65bc822c77' {
-            $outputText += "Update service: Windows Update (&yellow Expected Microsoft Update)`r`n"
-        }
-        default {
-            $outputText += "Update service: $($DefaultAUService.Name) (ServiceID: $($DefaultAUService.ServiceID))`r`n"
-        }
+    $serviceValue = switch ($DefaultAUService.ServiceID.ToLower()) {
+        '7971f918-a847-4430-9279-4a52d1efe18d' { "Microsoft Update" }
+        '9482f4b4-e343-43b6-b170-9a65bc822c77' { "&yellow Windows Update (Expected Microsoft Update)" }
+        default { "$($DefaultAUService.Name) (ServiceID: $($DefaultAUService.ServiceID))" }
+    }
+} else {
+    $serviceValue = "&red Unable to detect default update service"
+}
+$outputText += "{0,-22} : {1}`r`n" -f "Update service",     $serviceValue
+$outputText += "{0,-22} : {1:$DateFormatHMSF}`r`n" -f "Searching duration", [datetime]$RunTime.ToString()
+
+if (-not $AutoScanExpected) {
+    if ($null -eq $LastSearchSuccessDate) {
+        $auScanValue = "n/a (not evaluated in $currentName mode)"
+    } else {
+        $auScanValue = "{0:$DateFormatYMDHMS} (not evaluated in $currentName mode)" -f $LastSearchSuccessDate
+    }
+} elseif ($null -eq $LastSearchSuccessDate) {
+    $auScanValue = "&red n/a (Automatic Updates API unresponsive or never scanned)"
+} else {
+    $selfSearchAgeDays = [math]::Round((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays, 1)
+    if ($selfSearchAgeDays -gt $AutoUpdateMaxAgeDays) {
+        $auScanValue = "&yellow {0:$DateFormatYMDHMS} (stale: $selfSearchAgeDays days old, threshold $AutoUpdateMaxAgeDays)" -f $LastSearchSuccessDate
+    } else {
+        $auScanValue = "{0:$DateFormatYMDHMS}" -f $LastSearchSuccessDate
     }
 }
-else {
-    $outputText += "&red Unable to detect default update service`r`n"
-}
+$outputText += "{0,-22} : {1}`r`n" -f "Last AU service scan", $auScanValue
 
-$outputText = $outputText + "Updates searching time: {0:$DateFormatHMSF}`r`n" -f [datetime]$RunTime.ToString()
-if (-not $AutoScanExpected) {
-  if ($null -eq $LastSearchSuccessDate) {
-    $outputText += "Last AU service scan: n/a (not evaluated in $currentName mode)`r`n"
-  } else {
-    $outputText += "Last AU service scan: {0:$DateFormatYMDHMS} (not evaluated in $currentName mode)`r`n" -f $LastSearchSuccessDate
-  }
-} elseif ($null -eq $LastSearchSuccessDate) {
-  $outputText += "&red Last AU service scan: n/a (Automatic Updates API unresponsive or never scanned)`r`n"
-} else {
-  $selfSearchAgeDays = [math]::Round((New-TimeSpan -Start $LastSearchSuccessDate -End (Get-Date)).TotalDays, 1)
-  if ($selfSearchAgeDays -gt $AutoUpdateMaxAgeDays) {
-    $outputText += "&yellow Last AU service scan: {0:$DateFormatYMDHMS} (stale: $selfSearchAgeDays days old, threshold $AutoUpdateMaxAgeDays)`r`n" -f $LastSearchSuccessDate
-  } else {
-    $outputText += "Last AU service scan: {0:$DateFormatYMDHMS}`r`n" -f $LastSearchSuccessDate
-  }
-}
 if ($null -eq $SearchOnlineSuccessDate) {
-  $outputText += "&red Last probe online scan: n/a (no successful online scan)`r`n"
+    $probeValue = "&red n/a (no successful online scan)"
 } else {
-  $outputText += "Last probe online scan: {0:$DateFormatYMDHMS}`r`n" -f $SearchOnlineSuccessDate
+    $probeValue = "{0:$DateFormatYMDHMS}" -f $SearchOnlineSuccessDate
 }
+$outputText += "{0,-22} : {1}`r`n" -f "Last probe online",    $probeValue
 
 if ($auBusyReuse) {
-  $outputText += "Skipped WUA Search: AU busy (installer=$($auBusy.Installer) downloader=$($auBusy.Downloader)) - reusing last cache`r`n"
+    $outputText += "{0,-22} : AU busy (installer={1} downloader={2}) - reusing last cache`r`n" -f "Skipped WUA Search", $auBusy.Installer, $auBusy.Downloader
 }
-
-$outputText = $outputText + $compliantOutputText
 
 if (-not $SearchOnlineSuccess) {
-  # $lastSearchError is only populated when we actually attempted a search this
-  # run; if the failure was carried over from a cached previous run, we don't
-  # have a specific message to surface.
-  if ($lastSearchError) {
-    $outputText += "&yellow Update is unreachable after $SearchAttempts attempts (last: $lastSearchError)`r`n"
-  } else {
-    $outputText += "&yellow Update is unreachable (cached failure from previous run)`r`n"
-  }
+    # $lastSearchError is only populated when we actually attempted a search this
+    # run; if the failure was carried over from a cached previous run, we don't
+    # have a specific message to surface.
+    if ($lastSearchError) {
+        $unreachableValue = "&yellow after $SearchAttempts attempts (last: $lastSearchError)"
+    } else {
+        $unreachableValue = "&yellow cached failure from previous run"
+    }
+    $outputText += "{0,-22} : {1}`r`n" -f "Update unreachable", $unreachableValue
 }
+
+$outputText += "`r`n--- Compliance -------------------------------------------`r`n"
+$outputText += $compliantOutputText
+
+$outputText += "`r`n"
 
 # --- Summary output ---
 # $totalUpdates and $overallColour were computed earlier (single source of truth);
