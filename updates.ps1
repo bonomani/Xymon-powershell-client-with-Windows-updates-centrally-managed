@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.32 / 2026-05-18 - Replace the IUpdateInstaller.IsBusy / IUpdateDownloader.IsBusy AU-busy probe with process-level detection of the Update Session Orchestrator workers (MoUsoCoreWorker.exe, USOClient.exe, TiWorker.exe, wuauclt.exe); the COM IsBusy property is a confirmed Microsoft bug on Windows 11 / Server 2022 (always returns false even during active downloads and installs), so the original v1.25 probe was effectively a no-op on modern hosts - process presence is the reliable signal recommended by the WUA community
 # Version 1.31 / 2026-05-18 - Raise the stale-instance kill threshold from 30 to 60 minutes so a legitimately slow scan (cold WUA against a slow proxy or a large catalog) is not killed prematurely
 # Version 1.30 / 2026-05-18 - Replace lock-only single-instance guard with process-based detection plus escalating kill: every tick enumerates powershell.exe instances whose CommandLine references this script, exits if a young instance is still working, and kills stale ones (>= $MaxRuntimeMinutes old) through Stop-Process -Force -> taskkill /F /T -> WMI Terminate before proceeding; the OS file lock is kept as a race-condition guard but no longer the only line of defence, because Invoke-WithTimeout releases the lock while the orphan COM runspace keeps the process alive as an unkillable-by-default zombie - that scenario was letting ticks pile up new zombies on top of older ones at every Xymon poll
 # Version 1.29 / 2026-05-18 - Cross-run retry on a failed cache: cache now stores FailureRetryCount, which increments on every actual WUA Search() failure and resets to 0 on success; when the cache is reused and the previous run failed, the next tick invalidates and retries up to $SearchFailureMaxRetries times (default 5) before giving up and waiting for the TTL or an AU scan/install trigger - that closes the gap where a single transient failure would keep the column stuck on "cached failure from previous run" for the full 11 h TTL window; lock-blocked exits and AU-busy cache reuses leave the counter alone because they don't perform a scan; $SearchAttempts default drops to 1 since the cross-run retry already covers transients
@@ -205,7 +206,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.31'
+$ScriptVersion = '1.32'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -615,24 +616,35 @@ $DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
         Select-Object ServiceID, Name
 }
 
-# Probe whether WUA is currently doing a download or install in another
-# session (manual GUI install, AU agent in progress, etc.). Our own Search()
-# would serialise on the same wuauserv lock and stall - or stall the
-# foreground operation - so when the probe says yes we prefer to reuse the
-# existing cache rather than fight for the lock. Wrapped in Invoke-WithTimeout
-# because every Microsoft.Update.* COM object can hang on policy-disabled
-# hosts (NoAutoUpdate=1). $null result -> assume not busy and proceed.
-$auBusy = Invoke-WithTimeout -TimeoutSeconds 10 -ScriptBlock {
-    try {
-        $installer  = New-Object -ComObject "Microsoft.Update.Installer"
-        $downloader = New-Object -ComObject "Microsoft.Update.Downloader"
-        @{
-            Installer  = [bool]$installer.IsBusy
-            Downloader = [bool]$downloader.IsBusy
-        }
-    } catch {
-        $null
+# Probe whether WUA is currently doing a scan, download or install in another
+# session (manual GUI install, AU agent scheduled scan, configmgr push, etc.).
+# Our own Search() would serialise on the wuauserv lock and stall - or stall
+# the foreground operation - so when the probe says yes we prefer to reuse the
+# existing cache rather than fight for the lock.
+#
+# We can't ask the WUA API directly: IUpdateInstaller.IsBusy is broken on
+# Windows 11 and Windows Server 2022 (always returns false even when an
+# install is actively running - confirmed Microsoft bug), and IUpdateSearcher
+# exposes no IsBusy property at all. The reliable signal is process-level:
+# the Update Session Orchestrator spawns specific worker processes whenever
+# it is doing work, and they linger only for a minute or two after.
+#   - MoUsoCoreWorker.exe : USO core worker (scan/download/install)
+#   - USOClient.exe       : USO trigger (transient, spawns MoUsoCoreWorker)
+#   - TiWorker.exe        : Windows Modules Installer worker (install phase)
+#   - wuauclt.exe         : legacy WU client (mostly Win 7/8 era)
+# Presence of any of these is treated as "WUA is busy".
+$auBusy = $null
+try {
+    $busyMarkers = @('TiWorker','MoUsoCoreWorker','USOClient','wuauclt')
+    $busyHits = Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $busyMarkers -contains $_.ProcessName }
+    if ($busyHits) {
+        $auBusy = @{}
+        foreach ($p in $busyHits) { $auBusy[$p.ProcessName] = $true }
     }
+} catch {
+    Write-DebugLog "AU-busy probe failed: $_"
+    $auBusy = $null
 }
 $auBusyReuse = $false
 
@@ -713,8 +725,9 @@ if ($null -ne $scanCache) {
 # duration of that install. We only do this when we have a cache to fall back
 # on; with no cache we accept the contention because reporting nothing is
 # worse than reporting late.
-if ($cacheIsInvalid -and $null -ne $scanCache -and $null -ne $auBusy -and ($auBusy.Installer -or $auBusy.Downloader)) {
-  Write-DebugLog "WUA is busy (installer=$($auBusy.Installer) downloader=$($auBusy.Downloader)) - reusing existing cache to avoid contention"
+if ($cacheIsInvalid -and $null -ne $scanCache -and $null -ne $auBusy -and $auBusy.Count -gt 0) {
+  $busyList = ($auBusy.Keys | Sort-Object) -join ','
+  Write-DebugLog "WUA is busy (processes: $busyList) - reusing existing cache to avoid contention"
   $cacheIsInvalid = $false
   $auBusyReuse = $true
 }
@@ -1087,7 +1100,8 @@ if ($null -eq $SearchOnlineSuccessDate) {
 $outputText += "{0,-22} : {1}`r`n" -f "Last probe online",    $probeValue
 
 if ($auBusyReuse) {
-    $outputText += "{0,-22} : AU busy (installer={1} downloader={2}) - reusing last cache`r`n" -f "Skipped WUA Search", $auBusy.Installer, $auBusy.Downloader
+    $busyList = ($auBusy.Keys | Sort-Object) -join ', '
+    $outputText += "{0,-22} : AU busy ({1}) - reusing last cache`r`n" -f "Skipped WUA Search", $busyList
 }
 
 if (-not $SearchOnlineSuccess) {
