@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.40 / 2026-05-18 - Print the actual actionable and total overflow thresholds on the neutral Pending file renames line too, so an operator can see why known-noise-only queues remain below alert state without scrolling back to the Configuration block
 # Version 1.39 / 2026-05-18 - Preserve cache reuse when the script is launched with no parameters: serialize $PsBoundParameters with ConvertTo-Json -InputObject so an empty hashtable stays {} instead of disappearing through the pipeline as $null and forcing a fresh WUA Search() every run
 # Version 1.38 / 2026-05-18 - Make PendingFileRenameOperations smarter: classify common Office Click-to-Run / Office font / printer V4 cache paths as known noise, alert on actionable entries rather than raw volume, retain a raw-total overflow guard, and print both counts plus per-entry tags so operators can see what drove the decision
 # Version 1.37 / 2026-05-18 - Remove MoUsoCoreWorker.exe from the AU-busy reuse gate: its mere presence can persist after useful work has ended, so it is too weak a signal to suppress a cache refresh on its own; keep only the narrower TiWorker.exe / USOClient.exe / wuauclt.exe markers for probable active install or trigger activity
@@ -205,7 +206,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.39'
+$ScriptVersion = '1.40'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -1272,7 +1273,7 @@ if ($pfrCount -gt 0) {
   } elseif ($pfrCount -gt $result.PendingFileRenameTotalThreshold) {
     $outputText += "&yellow Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (total overflow threshold $($result.PendingFileRenameTotalThreshold))`r`n"
   } else {
-    $outputText += "Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (within thresholds)`r`n"
+    $outputText += "Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (within thresholds: actionable <= $($result.PendingFileRenameThreshold), total <= $($result.PendingFileRenameTotalThreshold))`r`n"
   }
   # Indent the list so it reads as a sub-block of the line above.
   foreach ($f in $result.PendingFileRenames) {
