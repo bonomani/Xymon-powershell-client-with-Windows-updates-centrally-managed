@@ -472,13 +472,9 @@ $dateModerateLimit  = (Get-Date).adddays(- $ModerateLimit)
 $dateOtherLimit     = (Get-Date).adddays(- $OtherLimit)
 $Computername = $env:COMPUTERNAME
 
-# Detect the OS once with a graceful WMF 2.0 fallback.
-# Stock Windows 7 SP1 ships with WMF 2.0, which lacks Get-CimInstance;
-# anything from Win 7 SP1 + WMF 3.0 onward (and all server SKUs from 2012+)
-# supports CIM and is preferred. The fallback to Get-WmiObject keeps the
-# unpatched-Win-7 corner case working.
-# NOTE: written as statements (not "$var = try { } catch { }") so the script
-# still parses under PowerShell 2.0.
+# Detect the OS once with CIM first, then fall back to WMI if CIM itself is
+# unavailable or fails on the host. The script requires PowerShell 3.0+, so this
+# is a runtime resilience path, not PowerShell 2.0 compatibility support.
 $os = $null
 try {
     $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
