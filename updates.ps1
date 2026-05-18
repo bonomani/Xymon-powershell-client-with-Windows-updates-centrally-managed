@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.29 / 2026-05-18 - Cross-run retry on a failed cache: cache now stores FailureRetryCount, which increments on every actual WUA Search() failure and resets to 0 on success; when the cache is reused and the previous run failed, the next tick invalidates and retries up to $SearchFailureMaxRetries times (default 5) before giving up and waiting for the TTL or an AU scan/install trigger - that closes the gap where a single transient failure would keep the column stuck on "cached failure from previous run" for the full 11 h TTL window; lock-blocked exits and AU-busy cache reuses leave the counter alone because they don't perform a scan; $SearchAttempts default drops to 1 since the cross-run retry already covers transients
 # Version 1.28 / 2026-05-16 - Replace the five per-bucket threshold lines in Configuration with a markdown-style table (|Bucket|Yellow|Red|) - the matrix layout makes the policy easier to read at a glance and stays trivially parseable: any line starting with "|" is a table row, three pipe-separated cells, no state machine needed; values are plain integers with the "(days)" unit pulled into the table caption
 # Version 1.27 / 2026-05-16 - Restructure the report body into flat key:value pairs grouped into "--- Configuration ---", "--- Scan ---" and "--- Compliance ---" sections with consistent 26/22-char colon alignment; every line in Configuration and Scan now parses with a single regex "^([^:]+?)\s*:\s*(.+)$", the per-bucket thresholds get a dedicated line each instead of being smashed into one comma-soup line, and a downstream tool can extract any value (or the full config) without knowing the script's internal naming
 # Version 1.26 / 2026-05-16 - SCONFIG compliance failure now escalates the Xymon status to red rather than yellow; the operator explicitly opted into the check (either via -CheckSConfig or the implicit "Download" default), so a detected deviation is an intentional policy violation that deserves the same severity as the inline "&red Compliance SCONFIG: ... compliant=False" line - PendingReboot and SearchOnlineSuccess remain at yellow because they are operational signals rather than policy violations
@@ -130,16 +131,24 @@ $outputFile = 'c:\Program Files\xymon\tmp\updates'
 $lockFile = 'c:\Program Files\xymon\ext\updates.lock'
 
 # Other Settings
-# $SearchAttempts = number of WUA Search() attempts before giving up. The first
-# attempt covers the steady-state; additional attempts cover transient failures
-# (concurrent scan by the AU agent, momentary throttling, brief network glitch).
-# $SearchTimeoutSeconds caps each attempt so a hung Search() can't pin the run
-# (real Search() can take 5-10 min on a cold scan, so we leave room).
-# $SearchRetryDelaySeconds is the pause between attempts so the next try sees
-# a less-contended WUA.
-$SearchAttempts          = 2
-$SearchTimeoutSeconds    = 600
-$SearchRetryDelaySeconds = 30
+# $SearchAttempts            : WUA Search() attempts within a single run.
+#                              Defaults to 1 because the cross-run retry below
+#                              already covers transient failures - additional
+#                              in-run attempts would just hold the lock longer.
+# $SearchTimeoutSeconds      : per-attempt cap so a hung Search() cannot pin
+#                              the run (real cold scans can take 5-10 min).
+# $SearchRetryDelaySeconds   : pause between in-run attempts (only used when
+#                              $SearchAttempts > 1).
+# $SearchFailureMaxRetries   : maximum number of consecutive runs that retry a
+#                              failed cache. Counter lives in the cache itself,
+#                              increments on every actual scan failure, resets
+#                              to 0 on success. Lock-blocked exits and AU-busy
+#                              cache reuses do not touch the counter because
+#                              they don't perform a scan.
+$SearchAttempts            = 1
+$SearchTimeoutSeconds      = 600
+$SearchRetryDelaySeconds   = 30
+$SearchFailureMaxRetries   = 5
 $debug = $false                  # Write to logfile
 $DateFormatYMDHMSF = 'yyyy-MM-dd HH:mm:ss:fff'
 $DateFormatYMDHMS = 'yyyy-MM-dd HH:mm:ss'
@@ -194,7 +203,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.28'
+$ScriptVersion = '1.29'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -601,6 +610,20 @@ if ($null -ne $scanCache) {
   } elseif ($null -ne $LastInstallationSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastInstallationSuccessDate) {
     Write-DebugLog "Cache invalidated by AU installation since cache write"
     $cacheIsInvalid = $true
+  } elseif (-not $scanCache.SearchOnlineSuccess) {
+    # Previous run failed. Retry on the next tick (and the few after) until we
+    # either succeed or hit the consecutive-failure cap, then stop retrying
+    # and wait for TTL/AU triggers to drive the next attempt - that bounds the
+    # WUA hammering when the underlying cause is persistent (broken proxy, AU
+    # service stopped, etc.).
+    $prevRetries = 0
+    if ($scanCache.PSObject.Properties['FailureRetryCount']) { $prevRetries = [int]$scanCache.FailureRetryCount }
+    if ($prevRetries -lt $SearchFailureMaxRetries) {
+      Write-DebugLog "Cache invalidated: previous run failed ($prevRetries / $SearchFailureMaxRetries retries so far) - retrying"
+      $cacheIsInvalid = $true
+    } else {
+      Write-DebugLog "Cache reused: previous run failed and max retries reached ($prevRetries / $SearchFailureMaxRetries) - waiting for TTL or AU trigger"
+    }
   } else {
     # Args comparison (most expensive, runs only when TTL and AU triggers pass)
     $ReferenceObject = $scanCache.Args
@@ -760,12 +783,28 @@ if ($cacheIsInvalid) {
   # populated arrays in the same expression.
   if ($Updates) { $count = $Updates.Count } else { $count = 0 }
 
+  # FailureRetryCount tracks consecutive failed runs across cache writes:
+  # incremented on every actual scan failure, reset to 0 on success. This
+  # is the value that the cross-run retry logic above consults to decide
+  # whether to retry on the next tick. Lock-blocked exits and AU-busy reuse
+  # do not reach this point, so they leave the counter untouched.
+  if ($SearchOnlineSuccess) {
+    $failureRetryCount = 0
+  } else {
+    $prevRetries = 0
+    if ($scanCache -and $scanCache.PSObject.Properties['FailureRetryCount']) {
+      $prevRetries = [int]$scanCache.FailureRetryCount
+    }
+    $failureRetryCount = $prevRetries + 1
+  }
+
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
     date = $StartTime
     Update = $Updates
     SearchOnlineSuccess = $SearchOnlineSuccess
     SearchOnlineSuccessDate = $SearchOnlineSuccessDate
+    FailureRetryCount = $failureRetryCount
   }
 
   # Atomic write: emit JSON to a temp file then rename onto the live cache.
@@ -1000,13 +1039,27 @@ if ($auBusyReuse) {
 }
 
 if (-not $SearchOnlineSuccess) {
+    # The retry count comes from the cache we either just wrote (this run
+    # failed) or are reusing (this tick chose not to scan). $failureRetryCount
+    # is set only when we wrote a failure; otherwise we pull from $scanCache.
+    $retryShown = 0
+    if ($null -ne $failureRetryCount) {
+        $retryShown = $failureRetryCount
+    } elseif ($scanCache -and $scanCache.PSObject.Properties['FailureRetryCount']) {
+        $retryShown = [int]$scanCache.FailureRetryCount
+    }
+    if ($retryShown -ge $SearchFailureMaxRetries) {
+        $retryNote = "retry cap reached ($retryShown/$SearchFailureMaxRetries) - waiting for TTL or AU trigger"
+    } else {
+        $retryNote = "retry $retryShown/$SearchFailureMaxRetries"
+    }
     # $lastSearchError is only populated when we actually attempted a search this
     # run; if the failure was carried over from a cached previous run, we don't
     # have a specific message to surface.
     if ($lastSearchError) {
-        $unreachableValue = "&yellow after $SearchAttempts attempts (last: $lastSearchError)"
+        $unreachableValue = "&yellow $retryNote - last: $lastSearchError"
     } else {
-        $unreachableValue = "&yellow cached failure from previous run"
+        $unreachableValue = "&yellow $retryNote - cached failure from previous run"
     }
     $outputText += "{0,-22} : {1}`r`n" -f "Update unreachable", $unreachableValue
 }
