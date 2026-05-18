@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.36 / 2026-05-18 - Rename the AUOptions=7 compliance profile from misleading "AutoAdmin" to "NotifyInstallRestart", matching the real Windows Server behavior (auto-download, notify to install, notify to restart)
 # Version 1.35 / 2026-05-18 - Datetime safety net on cache trigger evaluation: wrap the whole if/elseif chain that compares cache.date / cache.LastBootUpTime / AU dates in try/catch, so a cache whose JSON parses but whose timestamp fields are non-parseable (manual edit, partial truncation, future schema drift) is treated as invalid and re-scanned rather than crashing the script - the [datetime] cast was the last unguarded edge that could propagate a fatal exception
 # Version 1.34 / 2026-05-18 - Hygiene fixes: move the -Version check ahead of the lock acquisition so it never blocks behind a running scan and never leaves an orphan lock file; format the Searching duration line as a real TimeSpan instead of an awkward [datetime] cast that would have wrapped past 24 h; switch the AU-busy probe to Get-Process -Name <array> instead of piping every running process through Where-Object; normalise the Status-flag append loop to a consistent $Status casing; refresh the Invoke-WithTimeout comment to reflect that kernel-stuck processes can persist long after the function returns
 # Version 1.33 / 2026-05-18 - Invalidate the cache and reset FailureRetryCount when the host has rebooted since the cache was written: probe Win32_OperatingSystem.LastBootUpTime at startup, store it in the cache, and add a new invalidation trigger that fires when the current boot time is newer than the cached one; a reboot typically clears the transient state that caused the previous failure chain (stuck COM, locked files, half-finished install), so resuming the retry count at 1 instead of letting the cap silently suppress retries lets the script recover immediately after a boot
@@ -51,7 +52,7 @@
 
 .DESCRIPTION
    Checks registry values for Windows Update against simplified SCONFIG profiles
-   (Disabled, Manual, Notify, Download).
+   (Disabled, Manual, Notify, Download, Automatic, NotifyInstallRestart).
    - If -CheckSConfig is omitted -> validate against default "Download".
    - If -CheckSConfig is provided -> validate against that explicit profile.
 
@@ -65,7 +66,8 @@
 
 .PARAMETER CheckSConfig
    If omitted -> Use "Download".
-   If provided -> Validate against this profile (Disabled, Manual, Notify, Download).
+   If provided -> Validate against this profile
+   (Disabled, Manual, Notify, Download, Automatic, NotifyInstallRestart).
 
 .PARAMETER Version
    Shows script version.
@@ -73,7 +75,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet("Disabled","Manual","Notify","Download","AutoAdmin")]
+    [ValidateSet("Disabled","Manual","Notify","Download","Automatic","NotifyInstallRestart")]
     [string]$CheckSConfig,
 
     # Single lever that drives all per-bucket thresholds below.
@@ -200,7 +202,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.35'
+$ScriptVersion = '1.36'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -506,7 +508,7 @@ function Get-SconfigName {
         2     { return "Notify" }
         3     { return "Download" }
         4     { return "Automatic" }
-        7     { return "AutoAdmin" }
+        7     { return "NotifyInstallRestart" }
         $null { return "Download" } # default if AUOptions missing
     }
     return $null
@@ -531,7 +533,7 @@ $regValueNAU       = if ($null -ne $rawNAU)       { $rawNAU }       else { 0 }
 # Current profile name
 $currentName = Get-SconfigName $rawAUOptions $rawNAU
 
-# Expected profile (default = Download, or user override with -CheckSConfig)
+# Expected profile (default = Download, or user override with -CheckSConfig).
 $expectedProfile = if ($PSBoundParameters.ContainsKey("CheckSConfig")) { $CheckSConfig } else { "Download" }
 
 # Compliance check
@@ -551,8 +553,8 @@ $expectedProfiles = @{
     "Manual"    = @{ AUOptions=1; NoAutoUpdate=0 }
     "Notify"    = @{ AUOptions=2; NoAutoUpdate=0 }
     "Download"  = @{ AUOptions=3; NoAutoUpdate=0 }
-    "Automatic" = @{ AUOptions=4; NoAutoUpdate=0 }
-    "AutoAdmin" = @{ AUOptions=7; NoAutoUpdate=0 }
+    "Automatic"            = @{ AUOptions=4; NoAutoUpdate=0 }
+    "NotifyInstallRestart" = @{ AUOptions=7; NoAutoUpdate=0 }
 }
 
 $exp = $expectedProfiles[$expectedProfile]
@@ -560,7 +562,7 @@ $exp = $expectedProfiles[$expectedProfile]
 # Symbolic names per registry key, and the full set of valid values
 # (shown as a reference next to the current value). The compliance line
 # above already tells the reader what is expected for the active profile.
-$auOptionsLookup    = @{ 1='Manual'; 2='Notify'; 3='Download'; 4='Automatic'; 7='AutoAdmin' }
+$auOptionsLookup    = @{ 1='Manual'; 2='Notify'; 3='Download'; 4='Automatic'; 7='NotifyInstallRestart' }
 $noAutoUpdateLookup = @{ 0='Enabled'; 1='Disabled' }
 $auOptionsPossible    = '1,2,3,4,7'
 $noAutoUpdatePossible = '0,1'
