@@ -63,16 +63,6 @@
    Check compliance against explicit profile:
    powershell.exe -executionpolicy remotesigned -file "{script}" -CheckSConfig Manual
 
-.PARAMETER AUOptions
-   Automatic Update behavior (normally absent unless configured):
-   - 1: Manual
-   - 2: Notify before download
-   - 3: Download, notify before install (default)
-
-.PARAMETER NoAutoUpdate
-   0 or absent: Enabled (Default)
-   1: Disabled
-
 .PARAMETER CheckSConfig
    If omitted -> Use "Download".
    If provided -> Validate against this profile (Disabled, Manual, Notify, Download).
@@ -85,9 +75,6 @@
 param(
     [ValidateSet("Disabled","Manual","Notify","Download","AutoAdmin")]
     [string]$CheckSConfig,
-
-    [string]$AUOptions,
-    [string]$NoAutoUpdate,
 
     # Single lever that drives all per-bucket thresholds below.
     # Low = default laxist policy for low-criticality infrastructure.
