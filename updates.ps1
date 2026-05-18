@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.31 / 2026-05-18 - Raise the stale-instance kill threshold from 30 to 60 minutes so a legitimately slow scan (cold WUA against a slow proxy or a large catalog) is not killed prematurely
 # Version 1.30 / 2026-05-18 - Replace lock-only single-instance guard with process-based detection plus escalating kill: every tick enumerates powershell.exe instances whose CommandLine references this script, exits if a young instance is still working, and kills stale ones (>= $MaxRuntimeMinutes old) through Stop-Process -Force -> taskkill /F /T -> WMI Terminate before proceeding; the OS file lock is kept as a race-condition guard but no longer the only line of defence, because Invoke-WithTimeout releases the lock while the orphan COM runspace keeps the process alive as an unkillable-by-default zombie - that scenario was letting ticks pile up new zombies on top of older ones at every Xymon poll
 # Version 1.29 / 2026-05-18 - Cross-run retry on a failed cache: cache now stores FailureRetryCount, which increments on every actual WUA Search() failure and resets to 0 on success; when the cache is reused and the previous run failed, the next tick invalidates and retries up to $SearchFailureMaxRetries times (default 5) before giving up and waiting for the TTL or an AU scan/install trigger - that closes the gap where a single transient failure would keep the column stuck on "cached failure from previous run" for the full 11 h TTL window; lock-blocked exits and AU-busy cache reuses leave the counter alone because they don't perform a scan; $SearchAttempts default drops to 1 since the cross-run retry already covers transients
 # Version 1.28 / 2026-05-16 - Replace the five per-bucket threshold lines in Configuration with a markdown-style table (|Bucket|Yellow|Red|) - the matrix layout makes the policy easier to read at a glance and stays trivially parseable: any line starting with "|" is a table row, three pipe-separated cells, no state machine needed; values are plain integers with the "(days)" unit pulled into the table caption
@@ -123,7 +124,7 @@ if (-not $PSBoundParameters.ContainsKey('OtherLimit'))                 { $OtherL
 if (-not $PSBoundParameters.ContainsKey('AutoUpdateMaxAgeDays'))       { $AutoUpdateMaxAgeDays       = $thresholds.AutoUpdateMaxAgeDays }
 if (-not $PSBoundParameters.ContainsKey('PendingFileRenameThreshold')) { $PendingFileRenameThreshold = $thresholds.PendingFileRenameThreshold }
 
-$MaxRuntimeMinutes = 30          # Hung instances older than this are killed
+$MaxRuntimeMinutes = 60          # Hung instances older than this are killed
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
@@ -204,7 +205,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.30'
+$ScriptVersion = '1.31'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
