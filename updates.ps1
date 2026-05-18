@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.33 / 2026-05-18 - Invalidate the cache and reset FailureRetryCount when the host has rebooted since the cache was written: probe Win32_OperatingSystem.LastBootUpTime at startup, store it in the cache, and add a new invalidation trigger that fires when the current boot time is newer than the cached one; a reboot typically clears the transient state that caused the previous failure chain (stuck COM, locked files, half-finished install), so resuming the retry count at 1 instead of letting the cap silently suppress retries lets the script recover immediately after a boot
 # Version 1.32 / 2026-05-18 - Replace the IUpdateInstaller.IsBusy / IUpdateDownloader.IsBusy AU-busy probe with process-level detection of the Update Session Orchestrator workers (MoUsoCoreWorker.exe, USOClient.exe, TiWorker.exe, wuauclt.exe); the COM IsBusy property is a confirmed Microsoft bug on Windows 11 / Server 2022 (always returns false even during active downloads and installs), so the original v1.25 probe was effectively a no-op on modern hosts - process presence is the reliable signal recommended by the WUA community
 # Version 1.31 / 2026-05-18 - Raise the stale-instance kill threshold from 30 to 60 minutes so a legitimately slow scan (cold WUA against a slow proxy or a large catalog) is not killed prematurely
 # Version 1.30 / 2026-05-18 - Replace lock-only single-instance guard with process-based detection plus escalating kill: every tick enumerates powershell.exe instances whose CommandLine references this script, exits if a young instance is still working, and kills stale ones (>= $MaxRuntimeMinutes old) through Stop-Process -Force -> taskkill /F /T -> WMI Terminate before proceeding; the OS file lock is kept as a race-condition guard but no longer the only line of defence, because Invoke-WithTimeout releases the lock while the orphan COM runspace keeps the process alive as an unkillable-by-default zombie - that scenario was letting ticks pile up new zombies on top of older ones at every Xymon poll
@@ -206,7 +207,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.32'
+$ScriptVersion = '1.33'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -616,6 +617,18 @@ $DefaultAUService = Invoke-WithTimeout -TimeoutSeconds 30 -ScriptBlock {
         Select-Object ServiceID, Name
 }
 
+# Probe the system boot time so the cache layer can detect a reboot since the
+# last cache write. A reboot typically clears the conditions that caused the
+# previous failures (stuck COM call, locked file, half-finished install), so
+# when we see one we invalidate the cache AND reset the FailureRetryCount so
+# the cap does not silently suppress retries that would have succeeded now.
+try {
+    $currentBootTime = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+} catch {
+    $currentBootTime = $null
+}
+$rebootClearedFailures = $false
+
 # Probe whether WUA is currently doing a scan, download or install in another
 # session (manual GUI install, AU agent scheduled scan, configmgr push, etc.).
 # Our own Search() would serialise on the wuauserv lock and stall - or stall
@@ -674,6 +687,11 @@ if ($null -ne $scanCache) {
   } elseif ($null -ne $LastInstallationSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastInstallationSuccessDate) {
     Write-DebugLog "Cache invalidated by AU installation since cache write"
     $cacheIsInvalid = $true
+  } elseif ($null -ne $currentBootTime -and $null -ne $scanCache.LastBootUpTime -and
+            [datetime]$scanCache.LastBootUpTime -lt [datetime]$currentBootTime) {
+    Write-DebugLog "Cache invalidated by host reboot since cache write - resetting FailureRetryCount"
+    $cacheIsInvalid = $true
+    $rebootClearedFailures = $true
   } elseif (-not $scanCache.SearchOnlineSuccess) {
     # Previous run failed. Retry on the next tick (and the few after) until we
     # either succeed or hit the consecutive-failure cap, then stop retrying
@@ -852,9 +870,14 @@ if ($cacheIsInvalid) {
   # incremented on every actual scan failure, reset to 0 on success. This
   # is the value that the cross-run retry logic above consults to decide
   # whether to retry on the next tick. Lock-blocked exits and AU-busy reuse
-  # do not reach this point, so they leave the counter untouched.
+  # do not reach this point, so they leave the counter untouched. After a
+  # detected reboot we start fresh (count = 1 on the new failure) because
+  # the previous chain of failures may have been caused by transient state
+  # that the boot just cleared.
   if ($SearchOnlineSuccess) {
     $failureRetryCount = 0
+  } elseif ($rebootClearedFailures) {
+    $failureRetryCount = 1
   } else {
     $prevRetries = 0
     if ($scanCache -and $scanCache.PSObject.Properties['FailureRetryCount']) {
@@ -866,6 +889,7 @@ if ($cacheIsInvalid) {
   $scan = [pscustomobject]@{
     Args = $PsBoundParameters
     date = $StartTime
+    LastBootUpTime = $currentBootTime
     Update = $Updates
     SearchOnlineSuccess = $SearchOnlineSuccess
     SearchOnlineSuccessDate = $SearchOnlineSuccessDate
