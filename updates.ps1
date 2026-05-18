@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.30 / 2026-05-18 - Replace lock-only single-instance guard with process-based detection plus escalating kill: every tick enumerates powershell.exe instances whose CommandLine references this script, exits if a young instance is still working, and kills stale ones (>= $MaxRuntimeMinutes old) through Stop-Process -Force -> taskkill /F /T -> WMI Terminate before proceeding; the OS file lock is kept as a race-condition guard but no longer the only line of defence, because Invoke-WithTimeout releases the lock while the orphan COM runspace keeps the process alive as an unkillable-by-default zombie - that scenario was letting ticks pile up new zombies on top of older ones at every Xymon poll
 # Version 1.29 / 2026-05-18 - Cross-run retry on a failed cache: cache now stores FailureRetryCount, which increments on every actual WUA Search() failure and resets to 0 on success; when the cache is reused and the previous run failed, the next tick invalidates and retries up to $SearchFailureMaxRetries times (default 5) before giving up and waiting for the TTL or an AU scan/install trigger - that closes the gap where a single transient failure would keep the column stuck on "cached failure from previous run" for the full 11 h TTL window; lock-blocked exits and AU-busy cache reuses leave the counter alone because they don't perform a scan; $SearchAttempts default drops to 1 since the cross-run retry already covers transients
 # Version 1.28 / 2026-05-16 - Replace the five per-bucket threshold lines in Configuration with a markdown-style table (|Bucket|Yellow|Red|) - the matrix layout makes the policy easier to read at a glance and stays trivially parseable: any line starting with "|" is a table row, three pipe-separated cells, no state machine needed; values are plain integers with the "(days)" unit pulled into the table caption
 # Version 1.27 / 2026-05-16 - Restructure the report body into flat key:value pairs grouped into "--- Configuration ---", "--- Scan ---" and "--- Compliance ---" sections with consistent 26/22-char colon alignment; every line in Configuration and Scan now parses with a single regex "^([^:]+?)\s*:\s*(.+)$", the per-bucket thresholds get a dedicated line each instead of being smashed into one comma-soup line, and a downstream tool can extract any value (or the full config) without knowing the script's internal naming
@@ -203,37 +204,87 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.29'
+$ScriptVersion = '1.30'
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
-# Windows Update COM Search() can hang indefinitely (timeout unreliable). Xymon
-# relaunches updates.ps1 every scan, so hung instances accumulate. We:
-#   1) kill our own previous instances older than $MaxRuntimeMinutes,
-#   2) take an exclusive OS file lock on $lockFile; if a fresh instance still
-#      holds it, exit immediately so no new powershell.exe piles up.
-# The lock handle is released by the OS when the process dies, so a killed
-# instance never blocks the next run.
+# Windows Update COM Search() can hang indefinitely in kernel mode. The OS
+# file lock alone is not enough because Invoke-WithTimeout abandons the
+# stuck COM runspace and the main thread releases the lock at exit - the
+# process itself sticks around as a zombie until the kernel call unwinds,
+# which can take hours or never. New ticks would then walk past the released
+# lock and pile a fresh zombie on top.
+#
+# So we drive single-instance via *process detection* (every powershell.exe
+# whose CommandLine references this script counts as an existing instance):
+#
+#   - Recent instance (< $MaxRuntimeMinutes old): treat as legitimate active
+#     scan and exit so we do not interfere.
+#   - Stale instance (>= $MaxRuntimeMinutes old): try to kill it through an
+#     escalating chain of methods, then proceed.
+#
+# The OS file lock is kept as a belt-and-suspenders synchroniser against the
+# race where two ticks pass the process scan at the exact same moment.
 # ------------------------------------------------------------------------------
+
+function Stop-ScriptInstance {
+  # Try to terminate a powershell instance using progressively more aggressive
+  # methods. Returns $true if the process is gone afterwards, $false if even
+  # the deepest method failed (kernel-stuck thread - only a reboot will fix).
+  param([Parameter(Mandatory=$true)][CimInstance]$Process)
+  $targetPid = [int]$Process.ProcessId
+  $methods = @(
+    @{ Name = 'Stop-Process -Force'; Action = {
+        Stop-Process -Id $targetPid -Force -ErrorAction Stop
+    } },
+    @{ Name = 'taskkill /F /T'; Action = {
+        $null = & taskkill /F /T /PID $targetPid 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "taskkill exit $LASTEXITCODE" }
+    } },
+    @{ Name = 'WMI Terminate'; Action = {
+        $r = Invoke-CimMethod -InputObject $Process -MethodName Terminate -ErrorAction Stop
+        if ($r.ReturnValue -ne 0) { throw "WMI Terminate returned $($r.ReturnValue)" }
+    } }
+  )
+  foreach ($m in $methods) {
+    try { & $m.Action } catch {
+      Write-DebugLog "Kill method '$($m.Name)' on PID $targetPid failed: $_"
+      continue
+    }
+    Start-Sleep -Milliseconds 500
+    if (-not (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)) {
+      Write-DebugLog "Killed PID $targetPid via '$($m.Name)'"
+      return $true
+    }
+    Write-DebugLog "Kill method '$($m.Name)' on PID $targetPid returned but process still alive"
+  }
+  Write-DebugLog "PID $targetPid could not be killed (kernel-stuck thread?) - leaving as-is"
+  return $false
+}
+
 $myScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
 if ($myScriptPath) {
-  $staleThreshold = (Get-Date).AddMinutes(-$MaxRuntimeMinutes)
   try {
-    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
+    $existingInstances = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop |
       Where-Object {
         $_.ProcessId -ne $PID -and
         $_.CommandLine -and
-        $_.CommandLine -like "*$myScriptPath*" -and
-        ([Management.ManagementDateTimeConverter]::ToDateTime($_.CreationDate)) -lt $staleThreshold
-      } | ForEach-Object {
-        Write-DebugLog "Killing stale instance PID $($_.ProcessId) started $($_.CreationDate)"
-        try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {
-          Write-DebugLog "Failed to kill PID $($_.ProcessId): $_"
-        }
+        $_.CommandLine -like "*$myScriptPath*"
+      })
+    foreach ($inst in $existingInstances) {
+      $instCreated = [Management.ManagementDateTimeConverter]::ToDateTime($inst.CreationDate)
+      $instAgeMin  = [math]::Round(((Get-Date) - $instCreated).TotalMinutes, 1)
+      if ($instAgeMin -ge $MaxRuntimeMinutes) {
+        Write-DebugLog "Stale instance PID $($inst.ProcessId), age $instAgeMin min (>= $MaxRuntimeMinutes) - killing"
+        $null = Stop-ScriptInstance -Process $inst
+      } else {
+        Write-DebugLog "Active instance PID $($inst.ProcessId), age $instAgeMin min (< $MaxRuntimeMinutes) - exiting"
+        exit 0
       }
+    }
   } catch {
-    Write-DebugLog "Stale-instance sweep failed: $_"
+    Write-DebugLog "Existing-instance scan failed: $_"
   }
 }
 
