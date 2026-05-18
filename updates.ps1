@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.35 / 2026-05-18 - Datetime safety net on cache trigger evaluation: wrap the whole if/elseif chain that compares cache.date / cache.LastBootUpTime / AU dates in try/catch, so a cache whose JSON parses but whose timestamp fields are non-parseable (manual edit, partial truncation, future schema drift) is treated as invalid and re-scanned rather than crashing the script - the [datetime] cast was the last unguarded edge that could propagate a fatal exception
 # Version 1.34 / 2026-05-18 - Hygiene fixes: move the -Version check ahead of the lock acquisition so it never blocks behind a running scan and never leaves an orphan lock file; format the Searching duration line as a real TimeSpan instead of an awkward [datetime] cast that would have wrapped past 24 h; switch the AU-busy probe to Get-Process -Name <array> instead of piping every running process through Where-Object; normalise the Status-flag append loop to a consistent $Status casing; refresh the Invoke-WithTimeout comment to reflect that kernel-stuck processes can persist long after the function returns
 # Version 1.33 / 2026-05-18 - Invalidate the cache and reset FailureRetryCount when the host has rebooted since the cache was written: probe Win32_OperatingSystem.LastBootUpTime at startup, store it in the cache, and add a new invalidation trigger that fires when the current boot time is newer than the cached one; a reboot typically clears the transient state that caused the previous failure chain (stuck COM, locked files, half-finished install), so resuming the retry count at 1 instead of letting the cap silently suppress retries lets the script recover immediately after a boot
 # Version 1.32 / 2026-05-18 - Replace the IUpdateInstaller.IsBusy / IUpdateDownloader.IsBusy AU-busy probe with process-level detection of the Update Session Orchestrator workers (MoUsoCoreWorker.exe, USOClient.exe, TiWorker.exe, wuauclt.exe); the COM IsBusy property is a confirmed Microsoft bug on Windows 11 / Server 2022 (always returns false even during active downloads and installs), so the original v1.25 probe was effectively a no-op on modern hosts - process presence is the reliable signal recommended by the WUA community
@@ -212,7 +213,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.34'
+$ScriptVersion = '1.35'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -688,8 +689,14 @@ if (Test-Path -Path $cachefile -PathType Leaf) {
 }
 
 if ($null -ne $scanCache) {
+ try {
   # Invalidation triggers, cheapest first so we short-circuit on the common
   # post-TTL cold cache before paying for the args comparison.
+  # The whole block is wrapped in try/catch so a cache whose JSON parses
+  # but whose date / boot-time fields are non-parseable strings (manual
+  # edit, partial truncation, future schema drift) is treated as invalid
+  # rather than crashing the script - the cast errors would otherwise
+  # propagate past the if-chain.
   if ($null -eq $scanCache.date -or ([datetime]$scanCache.date).AddHours(11) -lt $StartTime) {
     Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
     $cacheIsInvalid = $true
@@ -746,6 +753,10 @@ if ($null -ne $scanCache) {
       $cacheIsInvalid = $false
     }
   }
+ } catch {
+  Write-DebugLog "Cache invalidated: semantic corruption while evaluating triggers ($_)"
+  $cacheIsInvalid = $true
+ }
 }
 
 # If the cache would normally be refreshed this tick BUT WUA is busy with
