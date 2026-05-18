@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.34 / 2026-05-18 - Hygiene fixes: move the -Version check ahead of the lock acquisition so it never blocks behind a running scan and never leaves an orphan lock file; format the Searching duration line as a real TimeSpan instead of an awkward [datetime] cast that would have wrapped past 24 h; switch the AU-busy probe to Get-Process -Name <array> instead of piping every running process through Where-Object; normalise the Status-flag append loop to a consistent $Status casing; refresh the Invoke-WithTimeout comment to reflect that kernel-stuck processes can persist long after the function returns
 # Version 1.33 / 2026-05-18 - Invalidate the cache and reset FailureRetryCount when the host has rebooted since the cache was written: probe Win32_OperatingSystem.LastBootUpTime at startup, store it in the cache, and add a new invalidation trigger that fires when the current boot time is newer than the cached one; a reboot typically clears the transient state that caused the previous failure chain (stuck COM, locked files, half-finished install), so resuming the retry count at 1 instead of letting the cap silently suppress retries lets the script recover immediately after a boot
 # Version 1.32 / 2026-05-18 - Replace the IUpdateInstaller.IsBusy / IUpdateDownloader.IsBusy AU-busy probe with process-level detection of the Update Session Orchestrator workers (MoUsoCoreWorker.exe, USOClient.exe, TiWorker.exe, wuauclt.exe); the COM IsBusy property is a confirmed Microsoft bug on Windows 11 / Server 2022 (always returns false even during active downloads and installs), so the original v1.25 probe was effectively a no-op on modern hosts - process presence is the reliable signal recommended by the WUA community
 # Version 1.31 / 2026-05-18 - Raise the stale-instance kill threshold from 30 to 60 minutes so a legitimately slow scan (cold WUA against a slow proxy or a large catalog) is not killed prematurely
@@ -175,8 +176,12 @@ function Write-DebugLog {
 # - Microsoft.Update.AutoUpdate.Results.* never returns when Automatic Updates
 #   is policy-disabled (NoAutoUpdate=1) - observed on Genetec/Server hosts.
 # - Microsoft.Update.ServiceManager is in the same family.
-# The stuck thread is abandoned but harmless: the script exits shortly after
-# writing its output and the OS reclaims it.
+# - IUpdateSearcher.Search() can hang in kernel mode for hours on a stalled
+#   WUA backend (broken proxy, busy AU agent collision).
+# The stuck thread is abandoned by this function but the host process itself
+# may stay alive for a long time afterward (kernel-stuck syscalls survive
+# regular signals). The process-based single-instance guard at the top of the
+# script is the one that eventually cleans those zombies up at the next tick.
 function Invoke-WithTimeout {
     param(
         [Parameter(Mandatory=$true)][scriptblock]$ScriptBlock,
@@ -207,7 +212,16 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.33'
+$ScriptVersion = '1.34'
+
+# -Version is a pure metadata query: handle it before touching the lock or
+# enumerating processes, so it never blocks behind a running scan and never
+# leaves an orphan lock file behind.
+if ($Version) {
+  Write-Host $ScriptVersion
+  exit
+}
+
 $SearchOnlineSuccessDate = $null
 
 # ------------------------------------------------------------------------------
@@ -462,11 +476,6 @@ function Get-UpdateSeverity {
     return "Other"
 }
 
-if ($Version) {
-  Write-Host $ScriptVersion
-  exit
-}
-
 $dateCriticalLimit  = (Get-Date).adddays(- $CriticalLimit)
 $dateImportantLimit = (Get-Date).adddays(- $ImportantLimit)
 $dateModerateLimit  = (Get-Date).adddays(- $ModerateLimit)
@@ -649,8 +658,11 @@ $rebootClearedFailures = $false
 $auBusy = $null
 try {
     $busyMarkers = @('TiWorker','MoUsoCoreWorker','USOClient','wuauclt')
-    $busyHits = Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $busyMarkers -contains $_.ProcessName }
+    # Get-Process -Name accepts an array and short-circuits on names that do
+    # not exist (returns matching ones, ignores misses with -ErrorAction
+    # SilentlyContinue). Cheaper than piping every running process through
+    # Where-Object.
+    $busyHits = Get-Process -Name $busyMarkers -ErrorAction SilentlyContinue
     if ($busyHits) {
         $auBusy = @{}
         foreach ($p in $busyHits) { $auBusy[$p.ProcessName] = $true }
@@ -960,14 +972,14 @@ if ($count -gt 0) {
 
     # Build status flags
     $Status  = ""
-    if ($wUpdate.IsBeta) { $Status += "B" } else { $status += "-" }
-    if ($wUpdate.IsDownloaded) { $Status += "D" } else { $status += "-" }
-    if ($wUpdate.IsHidden) { $Status += "H" } else { $status += "-" }
-    if ($wUpdate.IsInstalled) { $Status += "I" } else { $status += "-" }
-    if ($wUpdate.IsMandatory) { $Status += "M" } else { $status += "-" }
-    if ($wUpdate.IsPresent) { $Status += "P" } else { $status += "-" }
-    if ($wUpdate.RebootRequired) { $Status += "R" } else { $status += "-" }
-    if ($wUpdate.IsUninstallable) { $Status += "U" } else { $status += "-" }
+    if ($wUpdate.IsBeta)          { $Status += "B" } else { $Status += "-" }
+    if ($wUpdate.IsDownloaded)    { $Status += "D" } else { $Status += "-" }
+    if ($wUpdate.IsHidden)        { $Status += "H" } else { $Status += "-" }
+    if ($wUpdate.IsInstalled)     { $Status += "I" } else { $Status += "-" }
+    if ($wUpdate.IsMandatory)     { $Status += "M" } else { $Status += "-" }
+    if ($wUpdate.IsPresent)       { $Status += "P" } else { $Status += "-" }
+    if ($wUpdate.RebootRequired)  { $Status += "R" } else { $Status += "-" }
+    if ($wUpdate.IsUninstallable) { $Status += "U" } else { $Status += "-" }
 
     # Classify (counters only; the overall colour is derived from these once
     # the loop is done, so Set-Colour never needs to run per-update).
@@ -1096,7 +1108,7 @@ if ($null -ne $DefaultAUService) {
     $serviceValue = "&red Unable to detect default update service"
 }
 $outputText += "{0,-22} : {1}`r`n" -f "Update service",     $serviceValue
-$outputText += "{0,-22} : {1:$DateFormatHMSF}`r`n" -f "Searching duration", [datetime]$RunTime.ToString()
+$outputText += "{0,-22} : {1}`r`n" -f "Searching duration", $RunTime.ToString('hh\:mm\:ss\.fff')
 
 if (-not $AutoScanExpected) {
     if ($null -eq $LastSearchSuccessDate) {
