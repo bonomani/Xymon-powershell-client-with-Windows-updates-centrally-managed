@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.37 / 2026-05-18 - Remove MoUsoCoreWorker.exe from the AU-busy reuse gate: its mere presence can persist after useful work has ended, so it is too weak a signal to suppress a cache refresh on its own; keep only the narrower TiWorker.exe / USOClient.exe / wuauclt.exe markers for probable active install or trigger activity
 # Version 1.36 / 2026-05-18 - Rename the AUOptions=7 compliance profile from misleading "AutoAdmin" to "NotifyInstallRestart", matching the real Windows Server behavior (auto-download, notify to install, notify to restart)
 # Version 1.35 / 2026-05-18 - Datetime safety net on cache trigger evaluation: wrap the whole if/elseif chain that compares cache.date / cache.LastBootUpTime / AU dates in try/catch, so a cache whose JSON parses but whose timestamp fields are non-parseable (manual edit, partial truncation, future schema drift) is treated as invalid and re-scanned rather than crashing the script - the [datetime] cast was the last unguarded edge that could propagate a fatal exception
 # Version 1.34 / 2026-05-18 - Hygiene fixes: move the -Version check ahead of the lock acquisition so it never blocks behind a running scan and never leaves an orphan lock file; format the Searching duration line as a real TimeSpan instead of an awkward [datetime] cast that would have wrapped past 24 h; switch the AU-busy probe to Get-Process -Name <array> instead of piping every running process through Where-Object; normalise the Status-flag append loop to a consistent $Status casing; refresh the Invoke-WithTimeout comment to reflect that kernel-stuck processes can persist long after the function returns
@@ -202,7 +203,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.36'
+$ScriptVersion = '1.37'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -624,8 +625,8 @@ try {
 }
 $rebootClearedFailures = $false
 
-# Probe whether WUA is currently doing a scan, download or install in another
-# session (manual GUI install, AU agent scheduled scan, configmgr push, etc.).
+# Probe whether WUA is probably in a foreground-sensitive phase in another
+# session (manual GUI install, AU agent scheduled install, configmgr push, etc.).
 # Our own Search() would serialise on the wuauserv lock and stall - or stall
 # the foreground operation - so when the probe says yes we prefer to reuse the
 # existing cache rather than fight for the lock.
@@ -633,17 +634,17 @@ $rebootClearedFailures = $false
 # We can't ask the WUA API directly: IUpdateInstaller.IsBusy is broken on
 # Windows 11 and Windows Server 2022 (always returns false even when an
 # install is actively running - confirmed Microsoft bug), and IUpdateSearcher
-# exposes no IsBusy property at all. The reliable signal is process-level:
-# the Update Session Orchestrator spawns specific worker processes whenever
-# it is doing work, and they linger only for a minute or two after.
-#   - MoUsoCoreWorker.exe : USO core worker (scan/download/install)
-#   - USOClient.exe       : USO trigger (transient, spawns MoUsoCoreWorker)
+# exposes no IsBusy property at all. Process-level signals are imperfect, so use
+# only the narrower markers that imply probable active work:
+#   - USOClient.exe       : USO trigger (normally transient)
 #   - TiWorker.exe        : Windows Modules Installer worker (install phase)
 #   - wuauclt.exe         : legacy WU client (mostly Win 7/8 era)
-# Presence of any of these is treated as "WUA is busy".
+# MoUsoCoreWorker.exe is intentionally excluded: its mere presence can persist
+# after useful work has ended, making it too weak a signal to suppress a refresh.
+# Presence of any retained marker is treated as "WUA is busy".
 $auBusy = $null
 try {
-    $busyMarkers = @('TiWorker','MoUsoCoreWorker','USOClient','wuauclt')
+    $busyMarkers = @('TiWorker','USOClient','wuauclt')
     # Get-Process -Name accepts an array and short-circuits on names that do
     # not exist (returns matching ones, ignores misses with -ErrorAction
     # SilentlyContinue). Cheaper than piping every running process through
