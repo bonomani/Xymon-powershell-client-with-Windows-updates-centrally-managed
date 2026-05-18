@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.39 / 2026-05-18 - Preserve cache reuse when the script is launched with no parameters: serialize $PsBoundParameters with ConvertTo-Json -InputObject so an empty hashtable stays {} instead of disappearing through the pipeline as $null and forcing a fresh WUA Search() every run
 # Version 1.38 / 2026-05-18 - Make PendingFileRenameOperations smarter: classify common Office Click-to-Run / Office font / printer V4 cache paths as known noise, alert on actionable entries rather than raw volume, retain a raw-total overflow guard, and print both counts plus per-entry tags so operators can see what drove the decision
 # Version 1.37 / 2026-05-18 - Remove MoUsoCoreWorker.exe from the AU-busy reuse gate: its mere presence can persist after useful work has ended, so it is too weak a signal to suppress a cache refresh on its own; keep only the narrower TiWorker.exe / USOClient.exe / wuauclt.exe markers for probable active install or trigger activity
 # Version 1.36 / 2026-05-18 - Rename the AUOptions=7 compliance profile from misleading "AutoAdmin" to "NotifyInstallRestart", matching the real Windows Server behavior (auto-download, notify to install, notify to restart)
@@ -204,7 +205,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.38'
+$ScriptVersion = '1.39'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -751,7 +752,10 @@ if ($null -ne $scanCache) {
   } else {
     # Args comparison (most expensive, runs only when TTL and AU triggers pass)
     $ReferenceObject = $scanCache.Args
-    $DifferenceObject = $PsBoundParameters | ConvertTo-Json | ConvertFrom-Json
+    # Use -InputObject rather than the pipeline: an empty hashtable sent
+    # through the pipeline emits no object, which becomes $null after the JSON
+    # round-trip and makes an otherwise valid no-argument cache look corrupt.
+    $DifferenceObject = ConvertTo-Json -InputObject $PsBoundParameters | ConvertFrom-Json
     [array]$objprops = $ReferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
     $objprops += $DifferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
     $objprops = $objprops | Sort-Object | Select-Object -Unique
