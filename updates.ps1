@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.38 / 2026-05-18 - Make PendingFileRenameOperations smarter: classify common Office Click-to-Run / Office font / printer V4 cache paths as known noise, alert on actionable entries rather than raw volume, retain a raw-total overflow guard, and print both counts plus per-entry tags so operators can see what drove the decision
 # Version 1.37 / 2026-05-18 - Remove MoUsoCoreWorker.exe from the AU-busy reuse gate: its mere presence can persist after useful work has ended, so it is too weak a signal to suppress a cache refresh on its own; keep only the narrower TiWorker.exe / USOClient.exe / wuauclt.exe markers for probable active install or trigger activity
 # Version 1.36 / 2026-05-18 - Rename the AUOptions=7 compliance profile from misleading "AutoAdmin" to "NotifyInstallRestart", matching the real Windows Server behavior (auto-download, notify to install, notify to restart)
 # Version 1.35 / 2026-05-18 - Datetime safety net on cache trigger evaluation: wrap the whole if/elseif chain that compares cache.date / cache.LastBootUpTime / AU dates in try/catch, so a cache whose JSON parses but whose timestamp fields are non-parseable (manual edit, partial truncation, future schema drift) is treated as invalid and re-scanned rather than crashing the script - the [datetime] cast was the last unguarded edge that could propagate a fatal exception
@@ -99,14 +100,14 @@ param(
 # Threshold profiles per criticality level. Days until an update of that bucket
 # turns yellow (or red, for Critical). Profile selection is one source of truth;
 # individual params above override per-bucket if explicitly passed.
-# PendingFileRenameThreshold: maximum number of PendingFileRenameOperations
-# entries that are tolerated before the script raises a "reboot pending" alarm.
-# Windows often carries 1-5 legacy entries that never clear (locked drivers,
-# antivirus update artefacts) - on a low-criticality host they are background
-# noise rather than an actionable signal.
+# PendingFileRenameThreshold: maximum number of actionable
+# PendingFileRenameOperations entries tolerated before the script raises a
+# "reboot pending" alarm. Common Office / printer-driver families are tracked
+# separately as known noise, with a raw-total overflow guard inside
+# Test-PendingReboot to catch unusual accumulation.
 $criticalityProfiles = @{
-    "Low"      = @{ CriticalLimit=14; ImportantLimit=21; ModerateLimit=28; OtherLimit=56; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=10 }
-    "Standard" = @{ CriticalLimit=7;  ImportantLimit=14; ModerateLimit=21; OtherLimit=28; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=3 }
+    "Low"      = @{ CriticalLimit=14; ImportantLimit=21; ModerateLimit=28; OtherLimit=56; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=3 }
+    "Standard" = @{ CriticalLimit=7;  ImportantLimit=14; ModerateLimit=21; OtherLimit=28; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=1 }
     "High"     = @{ CriticalLimit=3;  ImportantLimit=7;  ModerateLimit=14; OtherLimit=21; AutoUpdateMaxAgeDays=1; PendingFileRenameThreshold=0 }
 }
 
@@ -203,7 +204,7 @@ function Invoke-WithTimeout {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.37'
+$ScriptVersion = '1.38'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -351,6 +352,28 @@ function Get-PendingFileRenameSources {
   return $sources
 }
 
+function Get-PendingFileRenameClassification {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  # These families commonly appear after normal Office Click-to-Run updates or
+  # printer-driver cache refreshes and are noisy if treated the same as arbitrary
+  # system/application renames. Keep them visible, but do not let them dominate
+  # the reboot signal by raw count alone.
+  $knownNoisePatterns = @(
+    '^C:\\Program Files\\Common Files\\microsoft shared\\ClickToRun\\',
+    '^C:\\WINDOWS\\fonts\\OFFSYM.*\.TTF$',
+    '^C:\\WINDOWS\\fonts\\flat_officeFontsPreview\.ttf$',
+    '^C:\\Windows\\System32\\spool\\V4Dirs\\'
+  )
+
+  foreach ($pattern in $knownNoisePatterns) {
+    if ($Path -match $pattern) {
+      return "KnownNoise"
+    }
+  }
+  return "Actionable"
+}
+
 function Test-PendingReboot {
   param([int]$PendingFileRenameThreshold = 0)
   [bool]$PendingReboot = $false
@@ -381,18 +404,29 @@ function Test-PendingReboot {
     $PendingReboot = $true
   }
 
-  # PendingFileRenameOperations(2) accumulate over time on Windows: a typical
-  # host carries 1-5 legacy entries that never get processed (locked drivers,
-  # antivirus updater leftovers). Read the actual list, count the source
-  # entries, and only treat the bucket as a reboot reason once the count
-  # exceeds the configured threshold; either way, surface the paths via
-  # PendingFileRenames so the operator can inspect what is queued.
+  # PendingFileRenameOperations(2) accumulate over time on Windows, and some
+  # common producers (Office Click-to-Run, Office fonts, printer V4 cache files)
+  # can enqueue many benign entries at once. Classify every source path so the
+  # reboot decision is driven by actionable entries, while a raw-total overflow
+  # guard still catches suspicious accumulation even if all entries are noise.
   $smPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager"
   $pfr1 = Get-PendingFileRenameSources -Path $smPath -ValueName "PendingFileRenameOperations"
   $pfr2 = Get-PendingFileRenameSources -Path $smPath -ValueName "PendingFileRenameOperations2"
-  $pfrTotal = $pfr1.Count + $pfr2.Count
-  if ($pfrTotal -gt $PendingFileRenameThreshold) {
-    $RebootReasons += "PendingFileRenameOperations: $pfrTotal entries (threshold: $PendingFileRenameThreshold)"
+  $pendingFileRenames = @($pfr1 + $pfr2 | ForEach-Object {
+    [pscustomobject]@{
+      Path = $_
+      Classification = Get-PendingFileRenameClassification -Path $_
+    }
+  })
+  $pfrTotal = $pendingFileRenames.Count
+  $pfrKnownNoise = @($pendingFileRenames | Where-Object { $_.Classification -eq "KnownNoise" }).Count
+  $pfrActionable = @($pendingFileRenames | Where-Object { $_.Classification -eq "Actionable" }).Count
+  $pfrTotalThreshold = 25
+  if ($pfrActionable -gt $PendingFileRenameThreshold) {
+    $RebootReasons += "PendingFileRenameOperations: $pfrActionable actionable entries (threshold: $PendingFileRenameThreshold)"
+    $PendingReboot = $true
+  } elseif ($pfrTotal -gt $pfrTotalThreshold) {
+    $RebootReasons += "PendingFileRenameOperations: $pfrTotal total entries (overflow threshold: $pfrTotalThreshold)"
     $PendingReboot = $true
   }
 
@@ -420,8 +454,11 @@ function Test-PendingReboot {
   return [pscustomobject]@{
     Pending = $PendingReboot
     Reasons = $RebootReasons
-    PendingFileRenames = $pfr1 + $pfr2
+    PendingFileRenames = $pendingFileRenames
     PendingFileRenameThreshold = $PendingFileRenameThreshold
+    PendingFileRenameTotalThreshold = $pfrTotalThreshold
+    PendingFileRenameKnownNoiseCount = $pfrKnownNoise
+    PendingFileRenameActionableCount = $pfrActionable
   }
 }
 
@@ -1084,7 +1121,8 @@ $outputText = $outputText + "<h2>Windows Updates Check</h2>`r`n"
 $outputText += "--- Configuration ----------------------------------------`r`n"
 $outputText += "{0,-22} : {1}`r`n"  -f "Criticality level",   $CriticalityLevel
 $outputText += "{0,-22} : {1} d`r`n" -f "AU scan max age",    $AutoUpdateMaxAgeDays
-$outputText += "{0,-22} : {1}`r`n"  -f "Pending renames max", $PendingFileRenameThreshold
+$outputText += "{0,-22} : {1}`r`n"  -f "Actionable renames max", $PendingFileRenameThreshold
+$outputText += "{0,-22} : {1}`r`n"  -f "Total renames overflow", $result.PendingFileRenameTotalThreshold
 $outputText += "`r`nSeverity thresholds (days):`r`n"
 $outputText += "| Bucket    | Yellow | Red |`r`n"
 $outputText += "| --------- | ------ | --- |`r`n"
@@ -1223,14 +1261,19 @@ if ($PendingReboot) {
 # only when the line is in alert state, otherwise let it render neutral.
 $pfrCount = $result.PendingFileRenames.Count
 if ($pfrCount -gt 0) {
-  if ($pfrCount -gt $result.PendingFileRenameThreshold) {
-    $outputText += "&yellow Pending file renames: $pfrCount entries (over threshold $($result.PendingFileRenameThreshold))`r`n"
+  $pfrActionableCount = $result.PendingFileRenameActionableCount
+  $pfrKnownNoiseCount = $result.PendingFileRenameKnownNoiseCount
+  if ($pfrActionableCount -gt $result.PendingFileRenameThreshold) {
+    $outputText += "&yellow Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (actionable threshold $($result.PendingFileRenameThreshold))`r`n"
+  } elseif ($pfrCount -gt $result.PendingFileRenameTotalThreshold) {
+    $outputText += "&yellow Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (total overflow threshold $($result.PendingFileRenameTotalThreshold))`r`n"
   } else {
-    $outputText += "Pending file renames: $pfrCount entries (within threshold $($result.PendingFileRenameThreshold))`r`n"
+    $outputText += "Pending file renames: $pfrCount total, $pfrActionableCount actionable, $pfrKnownNoiseCount known-noise (within thresholds)`r`n"
   }
   # Indent the list so it reads as a sub-block of the line above.
   foreach ($f in $result.PendingFileRenames) {
-    $outputText += "  $f`r`n"
+    $tag = if ($f.Classification -eq "KnownNoise") { "noise" } else { "actionable" }
+    $outputText += "  [$tag] $($f.Path)`r`n"
   }
 }
 
