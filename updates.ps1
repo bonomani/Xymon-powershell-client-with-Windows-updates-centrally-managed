@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.41 / 2026-05-19 - Make cache dates stable across JSON round-trips: store future cache timestamps as invariant ISO-8601 strings, parse both that format and legacy Windows PowerShell /Date(...)/ JSON values, normalize cached update deployment dates before writing, and timestamp successful probes/cache writes at completion time so a scan finishing after script start cannot invalidate its own cache on the next run
 # Version 1.40 / 2026-05-18 - Print the actual actionable and total overflow thresholds on the neutral Pending file renames line too, so an operator can see why known-noise-only queues remain below alert state without scrolling back to the Configuration block
 # Version 1.39 / 2026-05-18 - Preserve cache reuse when the script is launched with no parameters: serialize $PsBoundParameters with ConvertTo-Json -InputObject so an empty hashtable stays {} instead of disappearing through the pipeline as $null and forcing a fresh WUA Search() every run
 # Version 1.38 / 2026-05-18 - Make PendingFileRenameOperations smarter: classify common Office Click-to-Run / Office font / printer V4 cache paths as known noise, alert on actionable entries rather than raw volume, retain a raw-total overflow guard, and print both counts plus per-entry tags so operators can see what drove the decision
@@ -203,10 +204,38 @@ function Invoke-WithTimeout {
     return $null
 }
 
+function ConvertTo-CacheDateString {
+  param($Value)
+
+  if ($null -eq $Value) { return $null }
+  return ([datetime]$Value).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function ConvertFrom-CacheDate {
+  param($Value)
+
+  if ($null -eq $Value) { return $null }
+  if ($Value -is [datetime]) { return [datetime]$Value }
+
+  $text = [string]$Value
+  if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+
+  # Windows PowerShell 5.1 ConvertTo-Json serializes DateTime values as
+  # /Date(milliseconds-since-Unix-epoch)/. Keep reading that legacy format so
+  # existing caches can be reused after the script starts writing ISO strings.
+  if ($text -match '^\\?/Date\((-?\d+)(?:[+-]\d+)?\)\\?/$') {
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    $epoch = [datetime]::Parse('1970-01-01T00:00:00.0000000Z', [Globalization.CultureInfo]::InvariantCulture, $styles)
+    return $epoch.AddMilliseconds([double]$Matches[1]).ToLocalTime()
+  }
+
+  return [datetime]::Parse($text, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+}
+
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.40'
+$ScriptVersion = '1.41'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -722,18 +751,24 @@ if ($null -ne $scanCache) {
   # edit, partial truncation, future schema drift) is treated as invalid
   # rather than crashing the script - the cast errors would otherwise
   # propagate past the if-chain.
-  if ($null -eq $scanCache.date -or ([datetime]$scanCache.date).AddHours(11) -lt $StartTime) {
-    Write-DebugLog "Cache date too old $($scanCache.date) (max 11 h) "
+  $cacheDate = ConvertFrom-CacheDate $scanCache.date
+  $cacheBootTime = ConvertFrom-CacheDate $scanCache.LastBootUpTime
+  $lastAuSearchTime = ConvertFrom-CacheDate $LastSearchSuccessDate
+  $lastAuInstallTime = ConvertFrom-CacheDate $LastInstallationSuccessDate
+  $currentBootTimeValue = ConvertFrom-CacheDate $currentBootTime
+
+  if ($null -eq $cacheDate -or $cacheDate.AddHours(11) -lt $StartTime) {
+    Write-DebugLog "Cache date too old $cacheDate (raw: $($scanCache.date), max 11 h)"
     $cacheIsInvalid = $true
-  } elseif ($null -ne $LastSearchSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastSearchSuccessDate) {
-    Write-DebugLog "Cache invalidated by AU scan since cache write"
+  } elseif ($null -ne $lastAuSearchTime -and $cacheDate -lt $lastAuSearchTime) {
+    Write-DebugLog "Cache invalidated by AU scan since cache write (cache: $cacheDate, AU scan: $lastAuSearchTime)"
     $cacheIsInvalid = $true
-  } elseif ($null -ne $LastInstallationSuccessDate -and [datetime]$scanCache.date -lt [datetime]$LastInstallationSuccessDate) {
-    Write-DebugLog "Cache invalidated by AU installation since cache write"
+  } elseif ($null -ne $lastAuInstallTime -and $cacheDate -lt $lastAuInstallTime) {
+    Write-DebugLog "Cache invalidated by AU installation since cache write (cache: $cacheDate, AU install: $lastAuInstallTime)"
     $cacheIsInvalid = $true
-  } elseif ($null -ne $currentBootTime -and $null -ne $scanCache.LastBootUpTime -and
-            [datetime]$scanCache.LastBootUpTime -lt [datetime]$currentBootTime) {
-    Write-DebugLog "Cache invalidated by host reboot since cache write - resetting FailureRetryCount"
+  } elseif ($null -ne $currentBootTimeValue -and $null -ne $cacheBootTime -and
+            $cacheBootTime -lt $currentBootTimeValue) {
+    Write-DebugLog "Cache invalidated by host reboot since cache write (cache boot: $cacheBootTime, current boot: $currentBootTimeValue) - resetting FailureRetryCount"
     $cacheIsInvalid = $true
     $rebootClearedFailures = $true
   } elseif (-not $scanCache.SearchOnlineSuccess) {
@@ -756,7 +791,7 @@ if ($null -ne $scanCache) {
     # Use -InputObject rather than the pipeline: an empty hashtable sent
     # through the pipeline emits no object, which becomes $null after the JSON
     # round-trip and makes an otherwise valid no-argument cache look corrupt.
-    $DifferenceObject = ConvertTo-Json -InputObject $PsBoundParameters | ConvertFrom-Json
+    $DifferenceObject = ConvertTo-Json -InputObject ([pscustomobject]$PsBoundParameters) | ConvertFrom-Json
     [array]$objprops = $ReferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
     $objprops += $DifferenceObject | Get-Member -MemberType Property,NoteProperty | ForEach-Object Name
     $objprops = $objprops | Sort-Object | Select-Object -Unique
@@ -909,7 +944,7 @@ if ($cacheIsInvalid) {
   } until ($SearchOnlineSuccess -or ($attempt -ge $SearchAttempts))
 
   if ($SearchOnlineSuccess) {
-    $SearchOnlineSuccessDate = $StartTime
+    $SearchOnlineSuccessDate = Get-Date
   }
 
   # Set $count for the downstream classification loop. Handles $null (no
@@ -937,13 +972,22 @@ if ($cacheIsInvalid) {
     $failureRetryCount = $prevRetries + 1
   }
 
+  if ($Updates) {
+    foreach ($u in $Updates) {
+      if ($u.PSObject.Properties['LastDeploymentChangeTime']) {
+        $u.LastDeploymentChangeTime = ConvertTo-CacheDateString $u.LastDeploymentChangeTime
+      }
+    }
+  }
+
+  $cacheWriteTime = Get-Date
   $scan = [pscustomobject]@{
-    Args = $PsBoundParameters
-    date = $StartTime
-    LastBootUpTime = $currentBootTime
+    Args = [pscustomobject]$PsBoundParameters
+    date = ConvertTo-CacheDateString $cacheWriteTime
+    LastBootUpTime = ConvertTo-CacheDateString $currentBootTime
     Update = $Updates
     SearchOnlineSuccess = $SearchOnlineSuccess
-    SearchOnlineSuccessDate = $SearchOnlineSuccessDate
+    SearchOnlineSuccessDate = ConvertTo-CacheDateString $SearchOnlineSuccessDate
     FailureRetryCount = $failureRetryCount
   }
 
@@ -965,7 +1009,7 @@ if ($cacheIsInvalid) {
   }
   $SearchOnlineSuccess = $scanCache.SearchOnlineSuccess
   if ($SearchOnlineSuccess) {
-    [datetime]$SearchOnlineSuccessDate = $scanCache.SearchOnlineSuccessDate
+    $SearchOnlineSuccessDate = ConvertFrom-CacheDate $scanCache.SearchOnlineSuccessDate
   }
 }
 
@@ -985,7 +1029,7 @@ if ($count -gt 0) {
 
   foreach ($wUpdate in $Updates) {
     $severity  = Get-UpdateSeverity -Update $wUpdate
-    $patchDate = $wUpdate.LastDeploymentChangeTime
+    $patchDate = ConvertFrom-CacheDate $wUpdate.LastDeploymentChangeTime
     $patchAge  = (New-TimeSpan -Start $patchDate -End (Get-Date)).Days
     # KBArticleIDs can be an array (rare, but happens on rollups bundling
     # multiple KBs); join with comma so the HTML cell stays readable.
