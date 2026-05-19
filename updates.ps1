@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.42 / 2026-05-19 - Drop legacy /Date(...)/ cache parsing and accept only ISO-8601 cache timestamps; old caches are intentionally invalidated once and rewritten in the new stable format
 # Version 1.41 / 2026-05-19 - Make cache dates stable across JSON round-trips: store future cache timestamps as invariant ISO-8601 strings, parse both that format and legacy Windows PowerShell /Date(...)/ JSON values, normalize cached update deployment dates before writing, and timestamp successful probes/cache writes at completion time so a scan finishing after script start cannot invalidate its own cache on the next run
 # Version 1.40 / 2026-05-18 - Print the actual actionable and total overflow thresholds on the neutral Pending file renames line too, so an operator can see why known-noise-only queues remain below alert state without scrolling back to the Configuration block
 # Version 1.39 / 2026-05-18 - Preserve cache reuse when the script is launched with no parameters: serialize $PsBoundParameters with ConvertTo-Json -InputObject so an empty hashtable stays {} instead of disappearing through the pipeline as $null and forcing a fresh WUA Search() every run
@@ -220,22 +221,13 @@ function ConvertFrom-CacheDate {
   $text = [string]$Value
   if ([string]::IsNullOrWhiteSpace($text)) { return $null }
 
-  # Windows PowerShell 5.1 ConvertTo-Json serializes DateTime values as
-  # /Date(milliseconds-since-Unix-epoch)/. Keep reading that legacy format so
-  # existing caches can be reused after the script starts writing ISO strings.
-  if ($text -match '^\\?/Date\((-?\d+)(?:[+-]\d+)?\)\\?/$') {
-    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
-    $epoch = [datetime]::Parse('1970-01-01T00:00:00.0000000Z', [Globalization.CultureInfo]::InvariantCulture, $styles)
-    return $epoch.AddMilliseconds([double]$Matches[1]).ToLocalTime()
-  }
-
   return [datetime]::Parse($text, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
 }
 
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.41'
+$ScriptVersion = '1.42'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
