@@ -3,6 +3,7 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
+# Version 1.45 / 2026-05-19 - Rename Searching duration to Run duration and move cache-written timestamp next to Last probe online with the last successful online probe duration and cache TTL, keeping current run timing separate from cached probe timing
 # Version 1.44 / 2026-05-19 - Show the cache write timestamp inline with Searching duration so very short runs are visibly explained as cache reuse, update it on fresh scans to the actual cache write time, and store/display the last successful online probe duration inline with Last probe online
 # Version 1.43 / 2026-05-19 - Rename the non-noise PendingFileRenameOperations bucket from "actionable" to neutral "other": the script only knows that these paths are outside known noisy families, not that they are important or require review; generalize known-noise matching for common Office, browser, updater, printer spool/staging, Office-font, and narrow system-temp cleanup families; include narrow TeamViewer, NSIS, Edge/Copilot .old, and EdgeUpdate log cleanup patterns; raise per-profile other-entry thresholds to Low=10, Standard=5, High=2 while retaining the total overflow guard
 # Version 1.42 / 2026-05-19 - Drop legacy /Date(...)/ cache parsing and accept only ISO-8601 cache timestamps; old caches are intentionally invalidated once and rewritten in the new stable format
@@ -126,6 +127,7 @@ if (-not $PSBoundParameters.ContainsKey('AutoUpdateMaxAgeDays'))       { $AutoUp
 if (-not $PSBoundParameters.ContainsKey('PendingFileRenameThreshold')) { $PendingFileRenameThreshold = $thresholds.PendingFileRenameThreshold }
 
 $MaxRuntimeMinutes = 60          # Hung instances older than this are killed
+$CacheTtlHours = 11              # Successful scan cache lifetime before refresh
 
 # Define File Paths
 $logFile = 'c:\Program Files\xymon\ext\updates.log'
@@ -229,7 +231,7 @@ function ConvertFrom-CacheDate {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.44'
+$ScriptVersion = '1.45'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -241,6 +243,7 @@ if ($Version) {
 
 $SearchOnlineSuccessDate = $null
 $SearchOnlineDuration = $null
+$cacheWrittenDate = $null
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -727,7 +730,6 @@ try {
     $auBusy = $null
 }
 $auBusyReuse = $false
-$cacheWrittenDate = $null
 
 # Read cache. A corrupt JSON file (mid-write kill, disk error, manual edit)
 # would crash the script if left unguarded; treat any parse failure as an
@@ -759,8 +761,8 @@ if ($null -ne $scanCache) {
   $lastAuInstallTime = ConvertFrom-CacheDate $LastInstallationSuccessDate
   $currentBootTimeValue = ConvertFrom-CacheDate $currentBootTime
 
-  if ($null -eq $cacheDate -or $cacheDate.AddHours(11) -lt $StartTime) {
-    Write-DebugLog "Cache date too old $cacheDate (raw: $($scanCache.date), max 11 h)"
+  if ($null -eq $cacheDate -or $cacheDate.AddHours($CacheTtlHours) -lt $StartTime) {
+    Write-DebugLog "Cache date too old $cacheDate (raw: $($scanCache.date), max $CacheTtlHours h)"
     $cacheIsInvalid = $true
   } elseif ($null -ne $lastAuSearchTime -and $cacheDate -lt $lastAuSearchTime) {
     Write-DebugLog "Cache invalidated by AU scan since cache write (cache: $cacheDate, AU scan: $lastAuSearchTime)"
@@ -1200,12 +1202,8 @@ if ($null -ne $DefaultAUService) {
 } else {
     $serviceValue = "&red Unable to detect default update service"
 }
-$searchingDurationValue = $RunTime.ToString('hh\:mm\:ss\.fff')
-if ($null -ne $cacheWrittenDate) {
-    $searchingDurationValue += " (cache written {0:$DateFormatYMDHMS})" -f $cacheWrittenDate
-}
 $outputText += "{0,-22} : {1}`r`n" -f "Update service",     $serviceValue
-$outputText += "{0,-22} : {1}`r`n" -f "Searching duration", $searchingDurationValue
+$outputText += "{0,-22} : {1}`r`n" -f "Run duration",       $RunTime.ToString('hh\:mm\:ss\.fff')
 
 if (-not $AutoScanExpected) {
     if ($null -eq $LastSearchSuccessDate) {
@@ -1230,7 +1228,12 @@ if ($null -eq $SearchOnlineSuccessDate) {
 } else {
     $probeValue = "{0:$DateFormatYMDHMS}" -f $SearchOnlineSuccessDate
     if ($null -ne $SearchOnlineDuration) {
-        $probeValue += " (duration $($SearchOnlineDuration.ToString('hh\:mm\:ss\.fff')))"
+        $probeMeta = @("duration $($SearchOnlineDuration.ToString('hh\:mm\:ss\.fff'))")
+        if ($null -ne $cacheWrittenDate) {
+            $probeMeta += "cache written $($cacheWrittenDate.ToString($DateFormatYMDHMS))"
+        }
+        $probeMeta += "ttl ${CacheTtlHours}h"
+        $probeValue += " ($($probeMeta -join ', '))"
     }
 }
 $outputText += "{0,-22} : {1}`r`n" -f "Last probe online",    $probeValue
