@@ -3,7 +3,8 @@
 # Script originally by others, modified by Kris Springer, Bonomani
 # https://www.krisspringer.com
 # https://www.ionetworkadmin.com
-# Version 1.43 / 2026-05-19 - Rename the non-noise PendingFileRenameOperations bucket from "actionable" to neutral "other": the script only knows that these paths are outside known noisy families, not that they are important or require review; generalize known-noise matching for common Office, browser, updater, printer spool/staging, Office-font, and narrow system-temp cleanup families; raise per-profile other-entry thresholds to Low=10, Standard=5, High=2 while retaining the total overflow guard
+# Version 1.44 / 2026-05-19 - Show the cache write timestamp inline with Searching duration so very short runs are visibly explained as cache reuse, update it on fresh scans to the actual cache write time, and store/display the last successful online probe duration inline with Last probe online
+# Version 1.43 / 2026-05-19 - Rename the non-noise PendingFileRenameOperations bucket from "actionable" to neutral "other": the script only knows that these paths are outside known noisy families, not that they are important or require review; generalize known-noise matching for common Office, browser, updater, printer spool/staging, Office-font, and narrow system-temp cleanup families; include narrow TeamViewer, NSIS, Edge/Copilot .old, and EdgeUpdate log cleanup patterns; raise per-profile other-entry thresholds to Low=10, Standard=5, High=2 while retaining the total overflow guard
 # Version 1.42 / 2026-05-19 - Drop legacy /Date(...)/ cache parsing and accept only ISO-8601 cache timestamps; old caches are intentionally invalidated once and rewritten in the new stable format
 # Version 1.41 / 2026-05-19 - Make cache dates stable across JSON round-trips: store future cache timestamps as invariant ISO-8601 strings, parse both that format and legacy Windows PowerShell /Date(...)/ JSON values, normalize cached update deployment dates before writing, and timestamp successful probes/cache writes at completion time so a scan finishing after script start cannot invalidate its own cache on the next run
 # Version 1.40 / 2026-05-18 - Print the actual actionable and total overflow thresholds on the neutral Pending file renames line too, so an operator can see why known-noise-only queues remain below alert state without scrolling back to the Configuration block
@@ -228,7 +229,7 @@ function ConvertFrom-CacheDate {
 # Main script starts here
 $StartTime = Get-Date
 Write-DebugLog "Starting"
-$ScriptVersion = '1.43'
+$ScriptVersion = '1.44'
 
 # -Version is a pure metadata query: handle it before touching the lock or
 # enumerating processes, so it never blocks behind a running scan and never
@@ -239,6 +240,7 @@ if ($Version) {
 }
 
 $SearchOnlineSuccessDate = $null
+$SearchOnlineDuration = $null
 
 # ------------------------------------------------------------------------------
 # Single-instance guard.
@@ -387,7 +389,11 @@ function Get-PendingFileRenameClassification {
     @{ Name = "Office Click-to-Run"; Pattern = '^C:\\Program Files\\Common Files\\microsoft shared\\ClickToRun\\' },
     @{ Name = "Office fonts"; Pattern = '^C:\\WINDOWS\\fonts\\(?:OFFSYM.*|flat_officeFontsPreview)\.ttf$' },
     @{ Name = "Browser/updater cleanup"; Pattern = '^C:\\Program Files(?: \(x86\))?\\(?:Mozilla Firefox\\tobedeleted\\?|Mozilla Maintenance Service\\|Microsoft\\EdgeUpdate\\)' },
+    @{ Name = "TeamViewer updater cleanup"; Pattern = '^C:\\Program Files\\TeamViewer\\Update\\' },
+    @{ Name = "EdgeUpdate logs"; Pattern = '^C:\\ProgramData\\Microsoft\\EdgeUpdate\\Log\\' },
     @{ Name = "Printer spool staging"; Pattern = '^C:\\Windows\\System32\\spool\\(?:drivers|V4Dirs)\\' },
+    @{ Name = "NSIS temp cleanup"; Pattern = '^C:\\Windows\\TEMP\\ns[a-z0-9]+\.tmp\\?' },
+    @{ Name = "Edge/Copilot system-temp cleanup"; Pattern = '^C:\\Windows\\SystemTemp\\(?:MicrosoftEdgeUpdate|CopilotUpdate)\.exe\.old[0-9A-F]+$' },
     @{ Name = "System temp cleanup"; Pattern = '^C:\\Windows\\Temp\\(?:e(?:am|hd|pf)[0-9A-F]+|Upd[0-9A-F]+)\.tmp$' }
   )
 
@@ -721,6 +727,7 @@ try {
     $auBusy = $null
 }
 $auBusyReuse = $false
+$cacheWrittenDate = $null
 
 # Read cache. A corrupt JSON file (mid-write kill, disk error, manual edit)
 # would crash the script if left unguarded; treat any parse failure as an
@@ -746,6 +753,7 @@ if ($null -ne $scanCache) {
   # rather than crashing the script - the cast errors would otherwise
   # propagate past the if-chain.
   $cacheDate = ConvertFrom-CacheDate $scanCache.date
+  $cacheWrittenDate = $cacheDate
   $cacheBootTime = ConvertFrom-CacheDate $scanCache.LastBootUpTime
   $lastAuSearchTime = ConvertFrom-CacheDate $LastSearchSuccessDate
   $lastAuInstallTime = ConvertFrom-CacheDate $LastInstallationSuccessDate
@@ -858,6 +866,7 @@ if ($cacheIsInvalid) {
   $Updates = $null
   $lastSearchError = $null
   $attempt = 0
+  $searchOnlineStarted = Get-Date
 
   # Each attempt creates its own COM session/searcher inside a timeout-guarded
   # runspace, so a hung Search() (real failure mode seen on collisions with
@@ -939,6 +948,7 @@ if ($cacheIsInvalid) {
 
   if ($SearchOnlineSuccess) {
     $SearchOnlineSuccessDate = Get-Date
+    $SearchOnlineDuration = New-TimeSpan -Start $searchOnlineStarted -End $SearchOnlineSuccessDate
   }
 
   # Set $count for the downstream classification loop. Handles $null (no
@@ -975,6 +985,7 @@ if ($cacheIsInvalid) {
   }
 
   $cacheWriteTime = Get-Date
+  $cacheWrittenDate = $cacheWriteTime
   $scan = [pscustomobject]@{
     Args = [pscustomobject]$PsBoundParameters
     date = ConvertTo-CacheDateString $cacheWriteTime
@@ -982,6 +993,7 @@ if ($cacheIsInvalid) {
     Update = $Updates
     SearchOnlineSuccess = $SearchOnlineSuccess
     SearchOnlineSuccessDate = ConvertTo-CacheDateString $SearchOnlineSuccessDate
+    SearchOnlineDurationMs = if ($null -ne $SearchOnlineDuration) { [int64][math]::Round($SearchOnlineDuration.TotalMilliseconds) } else { $null }
     FailureRetryCount = $failureRetryCount
   }
 
@@ -1004,6 +1016,9 @@ if ($cacheIsInvalid) {
   $SearchOnlineSuccess = $scanCache.SearchOnlineSuccess
   if ($SearchOnlineSuccess) {
     $SearchOnlineSuccessDate = ConvertFrom-CacheDate $scanCache.SearchOnlineSuccessDate
+    if ($scanCache.PSObject.Properties['SearchOnlineDurationMs']) {
+      $SearchOnlineDuration = [TimeSpan]::FromMilliseconds([double]$scanCache.SearchOnlineDurationMs)
+    }
   }
 }
 
@@ -1185,8 +1200,12 @@ if ($null -ne $DefaultAUService) {
 } else {
     $serviceValue = "&red Unable to detect default update service"
 }
+$searchingDurationValue = $RunTime.ToString('hh\:mm\:ss\.fff')
+if ($null -ne $cacheWrittenDate) {
+    $searchingDurationValue += " (cache written {0:$DateFormatYMDHMS})" -f $cacheWrittenDate
+}
 $outputText += "{0,-22} : {1}`r`n" -f "Update service",     $serviceValue
-$outputText += "{0,-22} : {1}`r`n" -f "Searching duration", $RunTime.ToString('hh\:mm\:ss\.fff')
+$outputText += "{0,-22} : {1}`r`n" -f "Searching duration", $searchingDurationValue
 
 if (-not $AutoScanExpected) {
     if ($null -eq $LastSearchSuccessDate) {
@@ -1210,6 +1229,9 @@ if ($null -eq $SearchOnlineSuccessDate) {
     $probeValue = "&red n/a (no successful online scan)"
 } else {
     $probeValue = "{0:$DateFormatYMDHMS}" -f $SearchOnlineSuccessDate
+    if ($null -ne $SearchOnlineDuration) {
+        $probeValue += " (duration $($SearchOnlineDuration.ToString('hh\:mm\:ss\.fff')))"
+    }
 }
 $outputText += "{0,-22} : {1}`r`n" -f "Last probe online",    $probeValue
 
